@@ -1,0 +1,22 @@
+FROM node:24-bookworm-slim AS analyzer
+WORKDIR /analyzer
+RUN corepack enable && corepack prepare pnpm@11.25.0 --activate
+COPY analyzers/typescript/package.json analyzers/typescript/pnpm-lock.yaml ./
+RUN pnpm install --prod --frozen-lockfile
+COPY analyzers/typescript/src ./src
+
+FROM python:3.12-slim-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends libstdc++6 ca-certificates && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY backend /app/backend
+RUN pip install --no-cache-dir uv==0.12.23 && uv sync --project /app/backend --frozen --no-dev --no-editable
+COPY --from=analyzer /usr/local/bin/node /usr/local/bin/node
+COPY --from=analyzer /analyzer /app/analyzers/typescript
+COPY tests/fixtures/shop /app/tests/fixtures/shop
+RUN useradd --create-home navigator && mkdir /data && chown navigator:navigator /data
+ENV PATH="/app/backend/.venv/bin:${PATH}" PYTHONPATH=/app/backend PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
+    NAVIGATOR_DATA_DIR=/data NAVIGATOR_DEMO_DIR=/app/tests/fixtures/shop \
+    NAVIGATOR_ANALYZER=/app/analyzers/typescript/src/cli.mjs NODE_BINARY=/usr/local/bin/node
+USER navigator
+EXPOSE 8000
+CMD ["uvicorn", "navigator.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

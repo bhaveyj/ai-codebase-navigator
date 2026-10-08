@@ -1,0 +1,2 @@
+"""AI Codebase Navigator backend."""
+

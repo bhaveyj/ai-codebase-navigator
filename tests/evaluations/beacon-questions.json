@@ -1,0 +1,233 @@
+{
+  "fixture": "tests/fixtures/shop",
+  "cases": [
+    {
+      "id": "auth-entry",
+      "question": "How does a user log in?",
+      "expectedPaths": [
+        "src/server/routes/auth.ts"
+      ]
+    },
+    {
+      "id": "auth-session",
+      "question": "Where are login sessions created?",
+      "expectedPaths": [
+        "src/server/services/sessions.ts"
+      ]
+    },
+    {
+      "id": "auth-check",
+      "question": "How is the authorization header checked?",
+      "expectedPaths": [
+        "src/server/middleware/auth.ts"
+      ]
+    },
+    {
+      "id": "auth-expiry",
+      "question": "When does a session expire?",
+      "expectedPaths": [
+        "src/server/services/sessions.ts"
+      ]
+    },
+    {
+      "id": "auth-logout",
+      "question": "Where is the logout endpoint?",
+      "expectedPaths": [
+        "src/server/routes/auth.ts"
+      ]
+    },
+    {
+      "id": "user-email",
+      "question": "How is a user looked up by email?",
+      "expectedPaths": [
+        "src/server/services/users.ts"
+      ]
+    },
+    {
+      "id": "user-id",
+      "question": "How is a user loaded from their ID?",
+      "expectedPaths": [
+        "src/server/services/users.ts"
+      ]
+    },
+    {
+      "id": "rate-limit",
+      "question": "Where is rate limiting implemented?",
+      "expectedPaths": [
+        "src/server/middleware/rate-limit.ts"
+      ]
+    },
+    {
+      "id": "rate-window",
+      "question": "How long is the request rate-limit window?",
+      "expectedPaths": [
+        "src/server/middleware/rate-limit.ts"
+      ]
+    },
+    {
+      "id": "retry-after",
+      "question": "Where is Retry-After set on responses?",
+      "expectedPaths": [
+        "src/server/middleware/rate-limit.ts"
+      ]
+    },
+    {
+      "id": "checkout-flow",
+      "question": "Trace the checkout operation.",
+      "expectedPaths": [
+        "src/server/services/checkout.ts"
+      ]
+    },
+    {
+      "id": "checkout-route",
+      "question": "Which API endpoint submits an order?",
+      "expectedPaths": [
+        "src/server/routes/checkout.ts"
+      ]
+    },
+    {
+      "id": "checkout-auth",
+      "question": "Which middleware protects the checkout route?",
+      "expectedPaths": [
+        "src/server/routes/checkout.ts"
+      ]
+    },
+    {
+      "id": "cart-empty",
+      "question": "What happens when the cart is empty?",
+      "expectedPaths": [
+        "src/shared/validation.ts"
+      ]
+    },
+    {
+      "id": "cart-quantity",
+      "question": "How are item quantities validated?",
+      "expectedPaths": [
+        "src/shared/validation.ts"
+      ]
+    },
+    {
+      "id": "cart-total",
+      "question": "Where is the cart total calculated?",
+      "expectedPaths": [
+        "src/shared/validation.ts"
+      ]
+    },
+    {
+      "id": "stock-check",
+      "question": "How does checkout check available inventory?",
+      "expectedPaths": [
+        "src/server/services/inventory.ts"
+      ]
+    },
+    {
+      "id": "stock-reserve",
+      "question": "Where is inventory decremented after a purchase?",
+      "expectedPaths": [
+        "src/server/services/inventory.ts"
+      ]
+    },
+    {
+      "id": "payment",
+      "question": "How is the payment boundary modeled?",
+      "expectedPaths": [
+        "src/server/services/payments.ts"
+      ]
+    },
+    {
+      "id": "orders-store",
+      "question": "Where are orders stored?",
+      "expectedPaths": [
+        "src/server/db/store.ts"
+      ]
+    },
+    {
+      "id": "email-validation",
+      "question": "How is an email address validated?",
+      "expectedPaths": [
+        "src/shared/validation.ts"
+      ]
+    },
+    {
+      "id": "app-routing",
+      "question": "Where are Express routers mounted?",
+      "expectedPaths": [
+        "src/server/app.ts"
+      ]
+    },
+    {
+      "id": "health",
+      "question": "Where is the health endpoint declared?",
+      "expectedPaths": [
+        "src/server/app.ts"
+      ]
+    },
+    {
+      "id": "login-ui",
+      "question": "Which component renders the login form?",
+      "expectedPaths": [
+        "src/client/components/LoginForm.tsx"
+      ]
+    },
+    {
+      "id": "checkout-ui",
+      "question": "Which component submits the cart to checkout?",
+      "expectedPaths": [
+        "src/client/components/CheckoutButton.tsx"
+      ]
+    },
+    {
+      "id": "http-client",
+      "question": "Where are frontend HTTP requests made?",
+      "expectedPaths": [
+        "src/client/api.ts"
+      ]
+    },
+    {
+      "id": "session-ui",
+      "question": "How does the frontend switch from login to checkout?",
+      "expectedPaths": [
+        "src/client/App.tsx"
+      ]
+    },
+    {
+      "id": "types",
+      "question": "Where is the Order interface defined?",
+      "expectedPaths": [
+        "src/shared/types.ts"
+      ]
+    },
+    {
+      "id": "uuid",
+      "question": "How are order and payment IDs generated?",
+      "expectedPaths": [
+        "src/server/db/store.ts"
+      ]
+    },
+    {
+      "id": "error-ui",
+      "question": "Where does the checkout UI show errors?",
+      "expectedPaths": [
+        "src/client/components/CheckoutButton.tsx"
+      ]
+    }
+  ],
+  "absenceCases": [
+    {
+      "question": "Where is password hashing implemented?",
+      "expectation": "No password hashing in this fixture; simplified email-only login must be identified."
+    },
+    {
+      "question": "Which PostgreSQL table stores orders?",
+      "expectation": "Orders are stored in an in-memory Map, with no PostgreSQL table."
+    },
+    {
+      "question": "How does Stripe retry failed payments?",
+      "expectation": "The fixture has no Stripe SDK or real external payment requests."
+    },
+    {
+      "question": "Where are refresh tokens rotated?",
+      "expectation": "No refresh-token rotation is implemented."
+    }
+  ]
+}

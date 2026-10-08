@@ -1,0 +1,10 @@
+# Explicit graph-only mode. The same real analyzer runs without Atlas or Gemini.
+# docker compose -f compose.yaml -f compose.local.yaml up -d api web
+services:
+  api:
+    environment:
+      NAVIGATOR_MODE: local
+    volumes:
+      - local-data:/data
+volumes:
+  local-data:

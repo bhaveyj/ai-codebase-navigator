@@ -1,0 +1,7 @@
+{
+  "name": "beacon-store-fixture",
+  "private": true,
+  "type": "module",
+  "description": "Source-only demonstration for the AI Codebase Navigator",
+  "dependencies": { "express": "^5.0.0", "react": "^19.0.0", "react-dom": "^19.0.0" }
+}

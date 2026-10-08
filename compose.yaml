@@ -1,0 +1,72 @@
+name: codebase-navigator
+
+x-backend: &backend
+  build:
+    context: .
+    dockerfile: infra/Dockerfile.backend
+  env_file: .env
+  environment:
+    NAVIGATOR_MODE: production
+    REDIS_URL: redis://redis:6379/0
+    NAVIGATOR_DATA_DIR: /data
+  volumes:
+    - navigator-data:/data
+  restart: unless-stopped
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    <<: *backend
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/live')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    <<: *backend
+    command: ["celery", "-A", "navigator.jobs.celery_app", "worker", "--loglevel=info", "--concurrency=1", "--prefetch-multiplier=1"]
+    mem_limit: 2g
+    cpus: 2
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  scheduler:
+    <<: *backend
+    command: ["celery", "-A", "navigator.jobs.celery_app", "beat", "--loglevel=info", "--schedule=/data/celerybeat-schedule"]
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.web
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  navigator-data:
+  redis-data:
+
