@@ -171,11 +171,25 @@ Return to full mode with `docker compose up -d --force-recreate`.
 
 - Atlas TLS/timeouts: confirm the cluster is running and add the current outbound
   IP under Atlas Network Access. Docker and the host both need allowed access.
-- Gemini 429: completed embeddings are cached. The worker paces source inputs
-  (80/minute by default) and retries the pending batch with a visible countdown.
-  Adjust `GEMINI_EMBEDDING_INPUTS_PER_MINUTE` to the embedding model's project
-  quota in AI Studio. Daily or zero-quota errors pause indexing instead of
-  repeatedly retrying. An interrupted job exposes **Retry indexing**.
+- Gemini capacity: completed embeddings are cached. API and worker share an
+  atomic Redis gate for per-model minute requests, estimated input tokens, and
+  daily application budgets. Indexing gets a smaller allocation so questions
+  retain capacity. The defaults admit 70% of a 100 RPM / 30K TPM Embedding 2
+  free-tier allocation. This project's AI Studio currently shows a 1,000 RPD
+  embedding limit; the local deployment sets `GEMINI_EMBEDDING_RPD=1000` and
+  keeps the smaller 500-input application budget. Check your own project's
+  current values in AI Studio and set `GEMINI_EMBEDDING_RPM`,
+  `GEMINI_EMBEDDING_TPM`, and `GEMINI_EMBEDDING_RPD` accordingly. Set
+  `GEMINI_QUOTA_PROJECT` to the same identifier in every deployment sharing
+  one Gemini project and Redis. A full budget queues indexing with a visible
+  retry time, releases the worker, and resumes from saved vectors. Unknown 429s
+  get a short cooldown; confirmed daily limits wait for midnight Pacific.
+  Source batches default to four inputs; a rejected multi-input batch is halved to use any remaining daily capacity
+  before the single-input request finally waits for reset.
+  The worker limits each lease to 120 new vectors to stay below its task time
+  limit. Concurrent use of the Gemini project outside this app can still cause
+  429s. Provider usage metadata releases excess conservative token reservations
+  after successful responses.
 - Gemini overload: choose another model available to your key with `GEMINI_MODEL`
   and recreate API/worker containers. This workspace uses `gemini-3.5-flash` after
   repeated overloads on 3.8 Flash. `GEMINI_THINKING_LEVEL=low` and a configurable

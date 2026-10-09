@@ -1,6 +1,7 @@
 import hashlib
 import json
 import math
+import logging
 import re
 import time
 
@@ -11,7 +12,10 @@ from pydantic import ValidationError
 from .config import Settings
 from .contracts import DomainError, GeneratedAnswer
 from .graph import neighbors, scoped_node
+from .quota import estimate_tokens, pacific_reset_seconds
 from .storage import public
+
+logger = logging.getLogger(__name__)
 
 
 def ai_client(settings):
@@ -31,7 +35,9 @@ def provider_error(error, operation):
         body = payload.get("error", payload) if isinstance(payload, dict) else {}
         details = body.get("details", []) if isinstance(body, dict) else []
         retry_after = None
-        exhausted = False
+        daily = False
+        unavailable = False
+        minute = False
         for detail in details if isinstance(details, list) else []:
             if not isinstance(detail, dict):
                 continue
@@ -46,27 +52,44 @@ def provider_error(error, operation):
                         continue
                     quota = re.sub(r"[^a-z]", "", (str(violation.get("quotaId", "")) + str(violation.get("quotaMetric", ""))).lower())
                     value = str(violation.get("quotaValue", ""))
-                    exhausted |= "perday" in quota or value == "0"
-        if exhausted:
-            return DomainError("GEMINI_QUOTA_EXHAUSTED", "Gemini daily quota is exhausted or this model has no available quota. Saved embeddings are retained. Check this model's quota in Google AI Studio, then retry indexing when quota is available.", 503, retryable=False)
-        return DomainError("GEMINI_RATE_LIMITED", "Gemini rate limit reached. Saved embeddings are retained; indexing will retry after a pause. Check model quota in Google AI Studio if this persists.", 503, retry_after_seconds=retry_after)
+                    daily |= "perday" in quota or "daily" in quota
+                    minute |= "perminute" in quota or "minute" in quota
+                    unavailable |= value == "0"
+        if unavailable:
+            return DomainError("GEMINI_QUOTA_UNAVAILABLE", "This Gemini model has no available quota for the project. Check its AI Studio allocation.", 503, retryable=False)
+        if daily:
+            return DomainError("GEMINI_QUOTA_EXHAUSTED", "Gemini daily quota is exhausted. Saved embeddings are retained and indexing will resume after the Pacific-time reset.", 429, retry_after_seconds=max(pacific_reset_seconds(), retry_after or 0))
+        if minute:
+            return DomainError("GEMINI_RATE_LIMITED", "Gemini minute rate limit reached. Saved embeddings are retained; retrying after a cooldown.", 429, retry_after_seconds=retry_after or 120)
+        return DomainError("GEMINI_QUOTA_UNKNOWN", "Gemini temporarily rejected this request for quota. Saved embeddings are retained; retrying after a cooldown.", 429, retry_after_seconds=retry_after or 180)
     if code in {401, 403}:
         return DomainError("GEMINI_ACCESS_DENIED", "Gemini rejected access. Check the server API key and model permissions.", 503)
     return DomainError("EMBEDDING_UNAVAILABLE" if operation == "embedding" else "GEMINI_UNAVAILABLE", f"Gemini could not complete {operation}. Check model access, quota, and connectivity.", 503)
 
 
-def embed_batch(texts, settings: Settings, query=False):
+def embedding_prompts(texts, settings: Settings, query=False):
+    if settings.embedding_model == "gemini-embedding-001":
+        return texts
+    return [f"task: code retrieval | query: {text}" if query else f"title: Repository source | text: {text}" for text in texts]
+
+
+def embed_batch(texts, settings: Settings, query=False, quota=None):
     client = ai_client(settings)
     config = {"output_dimensionality": settings.embedding_dimensions}
     if settings.embedding_model == "gemini-embedding-001":
         config["task_type"] = "CODE_RETRIEVAL_QUERY" if query else "RETRIEVAL_DOCUMENT"
-        prompts = texts
-    else:
-        prompts = [f"task: code retrieval | query: {text}" if query else f"title: Repository source | text: {text}" for text in texts]
+    prompts = embedding_prompts(texts, settings, query)
     try:
+        reservation = quota.embedding(prompts, query=query) if quota else None
         # Strings would aggregate with Embedding 2. Each Content is one vector.
         contents = [types.Content(parts=[types.Part(text=prompt)]) for prompt in prompts]
         response = client.models.embed_content(model=settings.embedding_model, contents=contents, config=types.EmbedContentConfig(**config))
+        usage = getattr(response, "usage_metadata", None)
+        if usage:
+            actual = getattr(usage, "prompt_token_count", None)
+            logger.info("Gemini embedding usage: model=%s inputs=%s tokens=%s", settings.embedding_model, len(texts), actual)
+            if quota:
+                quota.record_usage(reservation, actual)
         if not response.embeddings or len(response.embeddings) != len(texts):
             raise ValueError("Embedding batch count does not match source count")
         vectors = []
@@ -87,8 +110,8 @@ def embed_batch(texts, settings: Settings, query=False):
         client.close()
 
 
-def embed(text, settings: Settings, query=False):
-    return embed_batch([text], settings, query)[0]
+def embed(text, settings: Settings, query=False, quota=None):
+    return embed_batch([text], settings, query, quota)[0]
 
 
 def wait_for_embedding_delay(seconds, check_cancel):
@@ -101,7 +124,7 @@ def wait_for_embedding_delay(seconds, check_cancel):
         time.sleep(min(1, remaining))
 
 
-def embed_chunks(store, chunks, settings, progress, check_cancel, on_backoff=None):
+def embed_chunks(store, chunks, settings, progress, check_cancel, on_backoff=None, quota=None):
     completed = sum(1 for chunk in chunks if chunk.get("embedding"))
     progress(completed, len(chunks))
     remaining = []
@@ -125,17 +148,41 @@ def embed_chunks(store, chunks, settings, progress, check_cancel, on_backoff=Non
         else:
             remaining.append(chunk)
     next_batch_at = time.monotonic()
-    for start in range(0, len(remaining), settings.embedding_batch_size):
+    embedded_this_lease = 0
+    start = 0
+    while start < len(remaining):
         check_cancel()
         batch = remaining[start:start + settings.embedding_batch_size]
-        wait_for_embedding_delay(next_batch_at - time.monotonic(), check_cancel)
-        for attempt in range(settings.embedding_batch_retries + 1):
+        if quota:
+            limit = max(1, math.floor(settings.gemini_embedding_tpm * settings.gemini_quota_fraction) - settings.gemini_query_tpm_reserve)
+            size = 0
+            selected = []
+            for chunk in batch:
+                cost = estimate_tokens(embedding_prompts([chunk["embeddingText"]], settings)[0])
+                if selected and size + cost > limit:
+                    break
+                selected.append(chunk)
+                size += cost
+            batch = selected
+        else:
+            wait_for_embedding_delay(next_batch_at - time.monotonic(), check_cancel)
+        attempt = 0
+        while True:
             try:
                 started_at = time.monotonic()
-                vectors = embed_batch([chunk["embeddingText"] for chunk in batch], settings)
+                if quota:
+                    vectors = embed_batch([chunk["embeddingText"] for chunk in batch], settings, quota=quota)
+                else:
+                    vectors = embed_batch([chunk["embeddingText"] for chunk in batch], settings)
                 break
             except DomainError as error:
-                if error.code != "GEMINI_RATE_LIMITED" or not error.retryable or attempt >= settings.embedding_batch_retries:
+                # A daily rejection can mean that fewer inputs remain than this
+                # batch contains. Save any still-admissible vectors before
+                # waiting for the reset; a single-input rejection ends the try.
+                if quota and error.code == "GEMINI_QUOTA_EXHAUSTED" and len(batch) > 1:
+                    batch = batch[:max(1, len(batch) // 2)]
+                    continue
+                if quota or error.code != "GEMINI_RATE_LIMITED" or not error.retryable or attempt >= settings.embedding_batch_retries:
                     raise
                 delay = max(min(300, 60 * 2 ** attempt), error.retry_after_seconds or 0)
                 if delay > 300:
@@ -144,9 +191,14 @@ def embed_chunks(store, chunks, settings, progress, check_cancel, on_backoff=Non
                     on_backoff(delay, completed, len(chunks))
                 wait_for_embedding_delay(delay, check_cancel)
                 progress(completed, len(chunks))
+                attempt += 1
+        start += len(batch)
         next_batch_at = started_at + (60 * len(batch) / settings.embedding_inputs_per_minute if settings.embedding_inputs_per_minute else 0)
         for chunk, vector in zip(batch, vectors, strict=True):
             persist(chunk, vector)
+        embedded_this_lease += len(batch)
+        if quota and embedded_this_lease >= settings.embedding_max_inputs_per_lease and start < len(remaining):
+            raise DomainError("INDEXING_SLICE_COMPLETE", "Indexing is continuing from saved embeddings shortly.", 429, retry_after_seconds=60)
 
 
 def vector_pipeline(analysis_id, vector, settings, limit=20):
@@ -177,7 +229,7 @@ def wait_search(store, analysis_id, chunks, settings, check_cancel):
     raise DomainError("SEARCH_PREPARING", "Atlas search indexes are still preparing. The graph is available; retry this analysis shortly to finish search preparation.", 503)
 
 
-def retrieve(store, analysis, request, settings):
+def retrieve(store, analysis, request, settings, quota=None):
     if not store.is_mongo:
         raise DomainError("ATLAS_UNAVAILABLE", "This local preview provides real static analysis and graph exploration. Configure MongoDB Atlas and Gemini in production mode to enable vector-backed AI answers.", 503)
     if not analysis.get("ragReady"):
@@ -189,7 +241,7 @@ def retrieve(store, analysis, request, settings):
     question = request.message or "Explain the selected source file"
     query_id = "query:" + hashlib.sha256((settings.embedding_config + "\0" + question).encode()).hexdigest()
     cached = store.one("embedding_cache", {"id": query_id})
-    vector = cached["embedding"] if cached and cached.get("embeddingConfig") == settings.embedding_config else embed(question, settings, query=True)
+    vector = cached["embedding"] if cached and cached.get("embeddingConfig") == settings.embedding_config else embed(question, settings, query=True, quota=quota)
     if not cached:
         store.put("embedding_cache", {"id": query_id, "embedding": vector, "embeddingConfig": settings.embedding_config})
     try:
@@ -249,14 +301,14 @@ def retrieve(store, analysis, request, settings):
         ranked = primary + remainder
     evidence, coverage, characters = [], {}, 0
     for chunk in ranked:
-        if len(evidence) >= 24:
+        if len(evidence) >= 16:
             break
         occupied = set(range(chunk["startLine"], chunk["endLine"] + 1))
         previous = coverage.setdefault(chunk["fileId"], set())
         if occupied and len(previous.intersection(occupied)) / len(occupied) > 0.7:
             continue
         size = len(chunk["text"]) + 150
-        if characters + size > 48000:
+        if characters + size > settings.gemini_answer_max_evidence_chars:
             continue
         evidence.append(chunk)
         characters += size
@@ -278,8 +330,8 @@ def validate_answer(answer, registry, valid_edges):
     return blocks
 
 
-def answer_question(store, analysis, request, settings):
-    evidence, edges, related = retrieve(store, analysis, request, settings)
+def answer_question(store, analysis, request, settings, quota=None):
+    evidence, edges, related = retrieve(store, analysis, request, settings, quota)
     if not evidence:
         return {"mode": "rag", "blocks": [{"text": "I could not find repository evidence supporting an answer to this question.", "kind": "unknown", "citationIds": []}], "citations": [], "relatedNodeIds": [], "warnings": []}
     registry, sources = {}, []
@@ -298,13 +350,20 @@ def answer_question(store, analysis, request, settings):
         for attempt in range(2):
             try:
                 thinking = types.ThinkingConfig(thinking_level=settings.gemini_thinking_level) if settings.gemini_model.startswith("gemini-3") else None
-                response = client.models.generate_content(model=settings.gemini_model, contents=json.dumps(payload), config=types.GenerateContentConfig(system_instruction=system, temperature=0.1, max_output_tokens=8192, thinking_config=thinking, response_mime_type="application/json", response_json_schema=GeneratedAnswer.model_json_schema()))
+                contents = json.dumps(payload)
+                reservation = quota.generation(system + contents) if quota else None
+                response = client.models.generate_content(model=settings.gemini_model, contents=contents, config=types.GenerateContentConfig(system_instruction=system, temperature=0.1, max_output_tokens=8192, thinking_config=thinking, response_mime_type="application/json", response_json_schema=GeneratedAnswer.model_json_schema()))
+                usage = getattr(response, "usage_metadata", None)
+                if quota and usage:
+                    quota.record_usage(reservation, getattr(usage, "prompt_token_count", None))
                 raw = json.loads(response.text)
                 blocks = validate_answer(raw, registry, {edge["id"] for edge in edges})
                 used = {id for block in blocks for id in block["citationIds"]}
                 return {"blocks": blocks, "citations": [citation for id, citation in registry.items() if id in used], "relatedNodeIds": related, "mode": "rag", "warnings": ["Static relationships do not prove runtime execution order."] if any(block["kind"] == "inference" for block in blocks) else []}
             except (ValueError, ValidationError, TypeError):
                 payload["validationFeedback"] = "Your answer contained unsupported or missing citations/edges or invalid JSON. Use only supplied IDs and cite every factual block."
+            except DomainError:
+                raise
             except Exception as error:
                 safe_error = provider_error(error, "answer generation")
                 if attempt == 0 and safe_error.retryable and getattr(error, "code", None) in {429, 500, 503, 504} and (safe_error.retry_after_seconds or 0) <= 5:

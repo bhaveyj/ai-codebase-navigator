@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
@@ -21,6 +22,7 @@ from ..graph import project_graph
 from ..ingestion import demo_files, github_metadata
 from ..jobs import create_job, delete_repository, launch, now, recover_jobs
 from ..rag import answer_question, dependency_answer
+from ..quota import QuotaGate
 from ..storage import AsyncStore, create_indexes, make_store
 from ..responses import Analysis, Capabilities, ChatResponse, GraphData, Job, RepositoryList, SearchResponse, SourceFile, Submission, TreeResponse
 
@@ -34,6 +36,7 @@ def create_app(config: Settings | None = None):
     async def lifespan(app):
         app.state.store = make_store(config)
         app.state.async_store = None
+        app.state.quota = QuotaGate(config) if config.mode == "production" else None
         try:
             app.state.async_store = AsyncStore(config, app.state.store if config.mode == "local" else None)
             if config.mode == "production":
@@ -48,6 +51,8 @@ def create_app(config: Settings | None = None):
         finally:
             if app.state.async_store is not None:
                 await app.state.async_store.close()
+            if app.state.quota:
+                app.state.quota.close()
             app.state.store.close()
 
     app = FastAPI(title="AI Codebase Navigator", version="0.1.0", lifespan=lifespan)
@@ -89,7 +94,7 @@ def create_app(config: Settings | None = None):
 
     @app.exception_handler(DomainError)
     async def domain_error(_request, error):
-        return error_response(error.code, error.message, error.status)
+        return error_response(error.code, error.message, error.status, error.retry_after_seconds)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(_request, error):
@@ -152,15 +157,28 @@ def create_app(config: Settings | None = None):
                     await asyncio.to_thread(app.state.store.update, "jobs", {"id": payload["job"]["id"]}, {"message": "Job saved; waiting for the background queue to reconnect"})
             return JSONResponse(Submission.model_validate(payload).model_dump(exclude_none=True), status_code=202 if created else 200)
 
+    async def check_submission(request):
+        if app.state.quota:
+            # Nginx replaces X-Real-IP. The API itself is bound to loopback on
+            # the host, so direct external clients cannot supply this header.
+            ip = request.headers.get("x-real-ip") or (request.client.host if request.client else "unknown")
+            await asyncio.to_thread(app.state.quota.submission, ip)
+
     @app.post("/api/v1/repositories", response_model=Submission, status_code=202)
-    async def add_repository(body: SubmitRequest):
+    async def add_repository(body: SubmitRequest, request: Request):
         metadata = await asyncio.to_thread(github_metadata, body.url, config)
+        analysis_id = hashlib.sha256(f"github-{metadata['githubId']}:{metadata['commitSha']}:{config.analysis_profile}".encode()).hexdigest()[:24]
+        if not await app.state.async_store.one("analyses", {"id": analysis_id}):
+            await check_submission(request)
         return await submit(metadata)
 
     @app.post("/api/v1/demo", response_model=Submission, status_code=202)
-    async def demo():
+    async def demo(request: Request):
         files, _ = await asyncio.to_thread(demo_files, config.demo_dir, "demo-hash", config)
         sha = hashlib.sha1("\n".join(file["path"] + file["contentHash"] for file in files).encode()).hexdigest()
+        analysis_id = hashlib.sha256(f"demo-beacon-store:{sha}:{config.analysis_profile}".encode()).hexdigest()[:24]
+        if not await app.state.async_store.one("analyses", {"id": analysis_id}):
+            await check_submission(request)
         return await submit({"owner": "examples", "name": "beacon-store", "url": "local://beacon-store", "defaultBranch": "main", "commitSha": sha}, True)
 
     @app.get("/api/v1/analyses/{analysis_id}", response_model=Analysis, response_model_exclude_none=True)
@@ -276,9 +294,9 @@ def create_app(config: Settings | None = None):
             files = await app.state.async_store.find("files", {"analysisId": analysis_id}, projection={"content": 0})
             return dependency_answer(analysis, nodes, edges, files, body.selectedNodeId, body.action)
         if app.state.chat_slots.locked():
-            raise DomainError("CHAT_BUSY", "Two answers are already being generated. Retry shortly.", 429)
+            raise DomainError("CHAT_BUSY", "Two answers are already being generated. Retry shortly.", 429, retry_after_seconds=5)
         async with app.state.chat_slots:
-            return await asyncio.to_thread(answer_question, app.state.store, analysis, body, config)
+            return await asyncio.to_thread(answer_question, app.state.store, analysis, body, config, app.state.quota)
 
     @app.delete("/api/v1/repositories/{repository_id}", status_code=204)
     async def remove_repository(repository_id: str):
@@ -311,8 +329,9 @@ def create_app(config: Settings | None = None):
     return app
 
 
-def error_response(code, message, status):
-    return JSONResponse({"error": {"code": code, "message": message}}, status_code=status)
+def error_response(code, message, status, retry_after=None):
+    headers = {"Retry-After": str(max(1, math.ceil(retry_after)))} if retry_after and status == 429 else None
+    return JSONResponse({"error": {"code": code, "message": message}}, status_code=status, headers=headers)
 
 
 app = create_app()

@@ -102,6 +102,16 @@ def test_request_bounds_and_cross_origin_mutations(client):
     assert bad_path.status_code == 400
 
 
+def test_quota_error_returns_retry_after_header(client, monkeypatch):
+    from navigator.contracts import DomainError
+    def full(*_):
+        raise DomainError("GEMINI_CAPACITY_WAIT", "Gemini minute budget is full", 429, retry_after_seconds=61)
+    monkeypatch.setattr(main, "answer_question", full)
+    response = client.post(f"/api/v1/analyses/{client.analysis_id}/chat", json={"message": "Explain checkout"})
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "61"
+
+
 def test_submission_reuses_commit_snapshot_and_deletion_cleans_artifacts(client):
     again = client.post("/api/v1/demo")
     assert again.status_code == 200

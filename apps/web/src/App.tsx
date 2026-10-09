@@ -16,7 +16,7 @@ function Logo({small = false}: {small?: boolean}) {return <div className={`brand
 function analysisLabel(analysis?: Analysis) {
   if (!analysis) return 'Pending';
   if (analysis.ragReady) return 'AI ready';
-  if (analysis.phase === 'waiting_for_quota') return 'Waiting for quota';
+  if (analysis.phase === 'waiting_for_quota' || analysis.phase === 'waiting_for_capacity') return 'Waiting for AI capacity';
   if (!analysis.graphReady) return humanPhase(analysis.phase);
   if (analysis.status === 'failed' || analysis.status === 'cancelled') return 'AI paused';
   return analysis.status === 'running' || analysis.status === 'queued' ? 'Indexing AI' : 'Graph ready';

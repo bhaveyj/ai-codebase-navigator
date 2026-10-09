@@ -69,22 +69,27 @@ The final sample overview renders six nodes and seven edges. Deeper directories
 remain accessible through drill-down and search; every displayed edge references
 a displayed node. Local preview images are ignored artifacts.
 
-Indexing recovery checks cover source-input pacing, retrying only a failed batch,
-preserving completed embeddings, honoring provider retry delays, cancellation
-during cooldown, and stopping automatic retries for daily/zero quota. A worker
-test confirms that cooldown keeps the analysis running and exposes its retry
-deadline. Browser checks also verified the countdown, disabled premature AI
-requests, and working static dependency answers during indexing, with no errors.
+Indexing recovery checks cover saved vectors, provider retry classification,
+cancellation, and durable worker handoff when capacity is unavailable. The
+project-wide Redis gate was tested with concurrent workers, minute request and
+token limits, daily budgets, a query reserve, and a per-IP submission allowance.
+The backend suite passes 82 tests with Redis; the production frontend builds.
+Browser checks also verified the countdown, disabled premature AI requests, and
+working static dependency answers during indexing, with no errors.
 
 SkillNexus (`bhaveyj/SkillNexus`, commit
 `7b0759284e5c06836014246b66dba3ee60f699f5`) additionally exercised a larger snapshot:
-109 files, 2,042 symbols, 6,524 edges and 1,059 chunks. Rate pacing allowed indexing
-to advance to 704 saved embeddings before Gemini reported exhausted daily quota.
-This analysis is **not AI-ready**. At the user's request it is queued to resume
-after the expected daily reset, on 9 October 2026 at 12:35 PM IST
-(`2026-10-09T07:05:00+00:00`). Source and graph remain available. A stale delivery
-guard prevents failed jobs from restarting without an explicit retry, and tests
-verify that the scheduler honors the deferred deadline without losing progress.
+109 files, 2,042 symbols, 6,524 edges and 1,059 chunks. The 704 saved embeddings
+were retained through deployment of the shared quota gate. A guarded query
+embedding succeeded, while larger source batches received daily quota errors;
+batch halving saved five additional source vectors, reaching **709/1,059**.
+AI Studio confirms a 1,000 RPD Embedding 2 limit, now configured locally;
+the application daily budget remains 500 inputs. After restarting the backend,
+the API reports ready and the job remains queued under `waiting_for_capacity`
+for the Pacific reset on 9 October 2026 at 12:30 PM IST
+(`2026-10-09T07:00:00+00:00`). Source and graph remain available;
+the analysis is **not yet AI-ready**. Completion and end-to-end RAG must be
+checked after capacity returns.
 
 ## Scope and practical limits
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ArrowUp, ArrowUpRight, BookOpen, Check, ChevronRight, CircleAlert, FileCode2, GitFork, Loader2, MessageSquare, Plus, Sparkles, X } from 'lucide-react';
-import { post, enc } from './api';
+import { ApiError, post, enc } from './api';
 import type { ChatResponse, Citation, CodeNode } from './types';
 
 type Turn = {id: number; question: string; answer?: ChatResponse; error?: string};
@@ -23,7 +23,7 @@ export default function Assistant({analysisId, selected, ragReady, aiStatus, onC
     try {
       const answer = await post<ChatResponse>(`/analyses/${enc(analysisId)}/chat`, {message: question, selectedNodeId: node?.id, history, ...(action ? {action} : {})});
       setTurns(current => current.map(turn => turn.id === id ? {...turn, answer} : turn)); onHighlights(answer.relatedNodeIds);
-    } catch (error) {setTurns(current => current.map(turn => turn.id === id ? {...turn, error: error instanceof Error ? error.message : 'Unable to answer this question.'} : turn));}
+    } catch (error) {setTurns(current => current.map(turn => turn.id === id ? {...turn, error: error instanceof ApiError && error.retryAfter ? `${error.message} Try again in about ${error.retryAfter} seconds.` : error instanceof Error ? error.message : 'Unable to answer this question.'} : turn));}
     finally {setBusy(false);}
   };
   useEffect(() => {if (request && request.seq !== seen.current && !busy) {seen.current = request.seq; void send(request.action === 'explain' ? `Explain ${request.node.name}.` : request.action === 'dependencies' ? `What does ${request.node.name} depend on?` : `What depends on ${request.node.name}?`, request.action, request.node);}}, [request, busy]);

@@ -59,6 +59,23 @@ def test_daily_quota_is_not_retried(monkeypatch, tmp_path):
     assert len(calls) == 1
 
 
+def test_daily_rejection_splits_multi_input_batch_and_saves_remaining_vectors(monkeypatch, tmp_path):
+    store = LocalStore(tmp_path)
+    config = Settings(_env_file=None, embedding_batch_size=5)
+    calls = []
+
+    def embed(texts, _settings, **_kwargs):
+        calls.append(len(texts))
+        if len(texts) > 2:
+            raise DomainError("GEMINI_QUOTA_EXHAUSTED", "daily", 429, retry_after_seconds=3600)
+        return [[1.0] for _ in texts]
+
+    monkeypatch.setattr(rag, "embed_batch", embed)
+    rag.embed_chunks(store, chunks(5), config, lambda *_: None, lambda: None, quota=object())
+    assert calls == [5, 2, 3, 1, 2]
+    assert len(store.find("embedding_cache")) == 5
+
+
 def test_backoff_can_be_cancelled_without_waiting_for_entire_delay(monkeypatch):
     elapsed = [0]
     monkeypatch.setattr(rag.time, "monotonic", lambda: elapsed[0])
@@ -84,16 +101,17 @@ def test_provider_retry_info_is_retained_without_exposing_provider_body():
     assert "secret" not in result.message
 
 
-@pytest.mark.parametrize("quota_id, value", [("EmbedRequestsPerDay", "1000"), ("EmbedRequestsPerMinute", "0")])
-def test_provider_exhausted_quota_does_not_schedule_automatic_retries(quota_id, value):
+@pytest.mark.parametrize("quota_id, value, expected", [("EmbedRequestsPerDay", "1000", "GEMINI_QUOTA_EXHAUSTED"), ("EmbedRequestsPerMinute", "0", "GEMINI_QUOTA_UNAVAILABLE")])
+def test_provider_classifies_daily_and_zero_quota(quota_id, value, expected):
     error = SimpleNamespace(code=429, details={"error": {"details": [
         {"@type": "type.googleapis.com/google.rpc.QuotaFailure", "violations": [{"quotaId": quota_id, "quotaValue": value}]},
     ]}})
     result = rag.provider_error(error, "embedding")
-    assert result.code == "GEMINI_QUOTA_EXHAUSTED" and not result.retryable
+    assert result.code == expected
+    assert result.retry_after_seconds if expected == "GEMINI_QUOTA_EXHAUSTED" else not result.retryable
 
 
-def test_worker_remains_running_and_publishes_retry_deadline_during_cooldown(monkeypatch, tmp_path):
+def test_worker_releases_lease_and_resumes_from_saved_vectors_after_capacity_wait(monkeypatch, tmp_path):
     from navigator import jobs
 
     config = Settings(_env_file=None, GEMINI_API_KEY="test", embedding_inputs_per_minute=0)
@@ -107,29 +125,23 @@ def test_worker_remains_running_and_publishes_retry_deadline_during_cooldown(mon
     monkeypatch.setattr(jobs, "make_store", lambda _: store)
     monkeypatch.setattr(jobs, "create_indexes", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(jobs, "wait_search", lambda *_: None)
-    monkeypatch.setattr(jobs, "answer_question", lambda *_: {"blocks": [{"text": "Fixture summary"}], "citations": []})
-    calls, pauses = [], []
+    monkeypatch.setattr(jobs, "answer_question", lambda *_, **__: {"blocks": [{"text": "Fixture summary"}], "citations": []})
+    monkeypatch.setattr(jobs, "QuotaGate", lambda _: SimpleNamespace(embedding=lambda *_, **__: None, generation=lambda *_: None, close=lambda: None))
+    calls = []
 
-    def embed(*_):
+    def embed(*_, **__):
         calls.append(1)
         if len(calls) == 1:
-            raise DomainError("GEMINI_RATE_LIMITED", "rate", 503)
+            raise DomainError("GEMINI_CAPACITY_WAIT", "Gemini minute budget is full", 429, retry_after_seconds=77)
         return [[1.0]]
 
-    def wait(delay, cancel):
-        cancel()
-        if delay > 0:
-            job = store.one("jobs", {"id": job_id})
-            analysis = store.one("analyses", {"id": analysis_id})
-            assert job["status"] == analysis["status"] == "running"
-            assert job["phase"] == analysis["phase"] == "embedding_backoff"
-            assert job["nextAttemptAt"] > jobs.now()
-            assert analysis["graphReady"] and not analysis["ragReady"]
-            pauses.append(job["nextAttemptAt"])
-
     monkeypatch.setattr(rag, "embed_batch", embed)
-    monkeypatch.setattr(rag, "wait_for_embedding_delay", wait)
     assert jobs.run_job(job_id, config) is None
-    assert len(pauses) == 1
+    waiting = store.one("jobs", {"id": job_id})
+    assert waiting["status"] == "queued" and waiting["phase"] == "waiting_for_capacity"
+    assert waiting["nextAttemptAt"] > jobs.now()
+    assert store.one("analyses", {"id": analysis_id})["graphReady"]
+    store.update("jobs", {"id": job_id}, {"nextAttemptAt": None})
+    assert jobs.run_job(job_id, config) is None
     assert store.one("analyses", {"id": analysis_id})["ragReady"]
-    assert store.one("jobs", {"id": job_id})["nextAttemptAt"] is None
+    assert len(store.find("embedding_cache")) == 1
