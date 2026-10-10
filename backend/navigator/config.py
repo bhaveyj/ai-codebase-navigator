@@ -41,15 +41,16 @@ class Settings(BaseSettings):
     analyzer_timeout: int = 300
     analyzer_memory_mb: int = Field(1024, ge=128, le=4096)
     embedding_dimensions: int = 768
-    embedding_batch_size: int = Field(4, ge=1, le=32)
-    embedding_max_inputs_per_lease: int = Field(120, ge=1, alias="EMBEDDING_MAX_INPUTS_PER_LEASE")
+    embedding_batch_size: int = Field(8, ge=1, le=32)
+    embedding_max_inputs_per_lease: int = Field(240, ge=1, alias="EMBEDDING_MAX_INPUTS_PER_LEASE")
+    gemini_count_embedding_tokens: bool = Field(True, alias="GEMINI_COUNT_EMBEDDING_TOKENS")
     # Admission is project-wide; these limits are deliberately below the
     # screenshot's free-tier 100 RPM / 30K TPM after quota_fraction is applied.
     gemini_quota_project: str = Field("default", alias="GEMINI_QUOTA_PROJECT")
     gemini_quota_fraction: float = Field(0.70, ge=0.1, le=0.9, alias="GEMINI_QUOTA_FRACTION")
     gemini_embedding_rpm: int = Field(100, ge=1, alias="GEMINI_EMBEDDING_RPM")
     gemini_embedding_tpm: int = Field(30000, ge=1000, alias="GEMINI_EMBEDDING_TPM")
-    gemini_embedding_daily_budget: int = Field(500, ge=1, alias="GEMINI_EMBEDDING_DAILY_BUDGET")
+    gemini_embedding_daily_budget: int = Field(700, ge=1, alias="GEMINI_EMBEDDING_DAILY_BUDGET")
     gemini_embedding_rpd: int | None = Field(None, ge=1, alias="GEMINI_EMBEDDING_RPD")
     gemini_query_rpm_reserve: int = Field(10, ge=0, alias="GEMINI_QUERY_RPM_RESERVE")
     gemini_query_tpm_reserve: int = Field(3000, ge=0, alias="GEMINI_QUERY_TPM_RESERVE")

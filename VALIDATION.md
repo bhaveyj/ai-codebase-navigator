@@ -73,23 +73,28 @@ Indexing recovery checks cover saved vectors, provider retry classification,
 cancellation, and durable worker handoff when capacity is unavailable. The
 project-wide Redis gate was tested with concurrent workers, minute request and
 token limits, daily budgets, a query reserve, and a per-IP submission allowance.
-The backend suite passes 82 tests with Redis; the production frontend builds.
+The backend suite passes 85 tests with Redis; the production frontend builds.
 Browser checks also verified the countdown, disabled premature AI requests, and
 working static dependency answers during indexing, with no errors.
 
 SkillNexus (`bhaveyj/SkillNexus`, commit
 `7b0759284e5c06836014246b66dba3ee60f699f5`) additionally exercised a larger snapshot:
-109 files, 2,042 symbols, 6,524 edges and 1,059 chunks. The 704 saved embeddings
-were retained through deployment of the shared quota gate. A guarded query
-embedding succeeded, while larger source batches received daily quota errors;
-batch halving saved five additional source vectors, reaching **709/1,059**.
-AI Studio confirms a 1,000 RPD Embedding 2 limit, now configured locally;
-the application daily budget remains 500 inputs. After restarting the backend,
-the API reports ready and the job remains queued under `waiting_for_capacity`
-for the Pacific reset on 9 October 2026 at 12:30 PM IST
-(`2026-10-09T07:00:00+00:00`). Source and graph remain available;
-the analysis is **not yet AI-ready**. Completion and end-to-end RAG must be
-checked after capacity returns.
+109 files, 2,042 symbols, 6,524 edges and 1,059 chunks. The 709 vectors saved
+before the Pacific quota reset were reused. On 9 October 2026 the worker saved
+the remaining 350 through 88 successful synchronous `batchEmbedContents` calls,
+and the analysis reached `ready` with Atlas vector search queryable. A separate
+Gemini answer-model 503 prevented the optional architecture summary; source,
+graph, and retrieval remain available, while an end-to-end generated answer is
+still unverified. AI Studio confirms a 1,000 RPD Embedding 2 limit; the local
+application budget is 700 weighted inputs/requests per Pacific day, with 25
+reserved for query embeddings.
+
+For the indexing speedup, five already-indexed SkillNexus chunks required 3,439
+tokens according to Gemini `countTokens`, versus 13,887 tokens reserved by the
+old byte-based estimate. Exact counts are now cached per source batch, with the
+preflight and embedding both charged to the shared Redis gate. Backend tests
+cover the count cache, quota weights, and a worker lease restart after a larger
+batch; saved vectors and embedding hashes remain unchanged.
 
 ## Scope and practical limits
 

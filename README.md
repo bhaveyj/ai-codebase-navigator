@@ -177,19 +177,26 @@ Return to full mode with `docker compose up -d --force-recreate`.
   retain capacity. The defaults admit 70% of a 100 RPM / 30K TPM Embedding 2
   free-tier allocation. This project's AI Studio currently shows a 1,000 RPD
   embedding limit; the local deployment sets `GEMINI_EMBEDDING_RPD=1000` and
-  keeps the smaller 500-input application budget. Check your own project's
+  keeps a 700-unit application budget (70% of the provider limit). Each source input and each
+  token-count preflight consumes a unit. Check your own project's
   current values in AI Studio and set `GEMINI_EMBEDDING_RPM`,
   `GEMINI_EMBEDDING_TPM`, and `GEMINI_EMBEDDING_RPD` accordingly. Set
   `GEMINI_QUOTA_PROJECT` to the same identifier in every deployment sharing
   one Gemini project and Redis. A full budget queues indexing with a visible
   retry time, releases the worker, and resumes from saved vectors. Unknown 429s
   get a short cooldown; confirmed daily limits wait for midnight Pacific.
-  Source batches default to four inputs; a rejected multi-input batch is halved to use any remaining daily capacity
-  before the single-input request finally waits for reset.
-  The worker limits each lease to 120 new vectors to stay below its task time
+  Source batches default to eight inputs, trimmed to the safe token budget.
+  Each new batch uses Gemini `countTokens` to obtain an exact input count;
+  both that preflight call and the embedding call are admitted through Redis,
+  and the count is cached so a resumed job does not repeat it. Disable this
+  with `GEMINI_COUNT_EMBEDDING_TOKENS=false` if your embedding model does not
+  support token counting. A rejected multi-input batch is halved to use any
+  remaining daily capacity before a single-input request waits for reset.
+  The worker limits each lease to 240 new vectors to stay below its task time
   limit. Concurrent use of the Gemini project outside this app can still cause
   429s. Provider usage metadata releases excess conservative token reservations
-  after successful responses.
+  after successful responses. The recovery scheduler checks due jobs every ten
+  seconds; this does not increase the Gemini request budget.
 - Gemini overload: choose another model available to your key with `GEMINI_MODEL`
   and recreate API/worker containers. This workspace uses `gemini-3.5-flash` after
   repeated overloads on 3.8 Flash. `GEMINI_THINKING_LEVEL=low` and a configurable

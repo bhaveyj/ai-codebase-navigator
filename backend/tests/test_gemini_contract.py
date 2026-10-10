@@ -24,6 +24,35 @@ def test_embedding_batch_is_separate_content_and_normalized(monkeypatch):
     client.close.assert_called_once()
 
 
+def test_embedding_batch_caches_exact_token_count_before_embedding(monkeypatch, tmp_path):
+    config = Settings(_env_file=None, embedding_dimensions=3)
+    count = Mock(return_value=SimpleNamespace(total_tokens=22))
+    generate = Mock(return_value=SimpleNamespace(embeddings=[SimpleNamespace(values=[1., 0., 0.]), SimpleNamespace(values=[0., 1., 0.])]))
+    clients = []
+
+    def client(_):
+        result = SimpleNamespace(models=SimpleNamespace(count_tokens=count, embed_content=generate), close=Mock())
+        clients.append(result)
+        return result
+
+    monkeypatch.setattr(rag, "ai_client", client)
+    quota = Mock()
+    store = LocalStore(tmp_path)
+    texts = ["function first(){}", "function second(){}"]
+    for _ in range(2):
+        assert len(rag.embed_batch(texts, config, quota=quota, token_cache=store)) == 2
+
+    assert count.call_count == 1
+    assert quota.token_count.call_count == 1
+    assert quota.record_usage.call_count == 1
+    assert generate.call_count == 2
+    assert quota.embedding.call_count == 2
+    assert all(call.kwargs["exact_tokens"] == 22 for call in quota.embedding.call_args_list)
+    assert len(store.find("embedding_cache")) == 1
+    assert store.find("embedding_cache")[0]["tokenCount"] == 22
+    assert all(client.close.call_count == 1 for client in clients)
+
+
 @pytest.mark.parametrize("citation_id, succeeds", [("S1", True), ("invented", False)])
 def test_answer_uses_json_schema_and_enforces_source_registry(monkeypatch, tmp_path, citation_id, succeeds):
     config = Settings(_env_file=None)

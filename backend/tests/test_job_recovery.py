@@ -1,8 +1,42 @@
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from navigator.config import Settings
-from navigator.jobs import create_job, now, recover_jobs, run_job
+from navigator.jobs import Cancelled, LeaseLost, cancellation_checker, create_job, now, recover_jobs, run_job
 from navigator.storage import LocalStore
+
+
+def test_cancellation_checker_bounds_reads_and_detects_changes(monkeypatch):
+    from navigator import jobs
+
+    clock = [0.0]
+    document = {"leaseToken": "current", "cancelRequested": False}
+    calls = []
+
+    class Store:
+        def one(self, collection, query):
+            calls.append((collection, query))
+            return document.copy()
+
+    monkeypatch.setattr(jobs.time, "monotonic", lambda: clock[0])
+    check = cancellation_checker(Store(), "job-1", "current")
+    check()
+    clock[0] = 0.25
+    check()
+    assert len(calls) == 1
+    clock[0] = 0.5
+    check()
+    assert len(calls) == 2
+    document["cancelRequested"] = True
+    clock[0] = 1.0
+    with pytest.raises(Cancelled):
+        check()
+    document["cancelRequested"] = False
+    document["leaseToken"] = "replacement"
+    clock[0] = 1.5
+    with pytest.raises(LeaseLost):
+        check()
 
 
 def test_live_worker_must_acknowledge_cancel_before_cleanup(tmp_path, monkeypatch):

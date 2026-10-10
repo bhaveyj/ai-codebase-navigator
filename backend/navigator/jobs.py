@@ -1,6 +1,7 @@
 import hashlib
 import logging
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -18,7 +19,7 @@ from .storage import SCOPED, create_indexes, make_store
 logger = logging.getLogger(__name__)
 settings = get_settings()
 celery_app = Celery("navigator", broker=settings.redis_url)
-celery_app.conf.update(task_serializer="json", accept_content=["json"], result_serializer="json", task_ignore_result=True, task_acks_late=True, task_reject_on_worker_lost=True, worker_prefetch_multiplier=1, broker_connection_retry_on_startup=True, broker_transport_options={"visibility_timeout": 7200}, task_time_limit=1800, task_soft_time_limit=1740, beat_schedule={"recover-jobs": {"task": "navigator.reconcile", "schedule": 60.0}})
+celery_app.conf.update(task_serializer="json", accept_content=["json"], result_serializer="json", task_ignore_result=True, task_acks_late=True, task_reject_on_worker_lost=True, worker_prefetch_multiplier=1, broker_connection_retry_on_startup=True, broker_transport_options={"visibility_timeout": 7200}, task_time_limit=1800, task_soft_time_limit=1740, beat_schedule={"recover-jobs": {"task": "navigator.reconcile", "schedule": 10.0}})
 local_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="repository-analysis")
 _local_futures = {}
 _future_lock = threading.Lock()
@@ -60,6 +61,25 @@ class LeaseLost(Exception):
     pass
 
 
+def cancellation_checker(store, job_id, token, interval=0.5):
+    """Bound database reads during tight chunk loops while checking promptly."""
+    last_checked = float("-inf")
+
+    def check():
+        nonlocal last_checked
+        current_time = time.monotonic()
+        if current_time - last_checked < interval:
+            return
+        current = store.one("jobs", {"id": job_id})
+        if not current or current.get("cancelRequested"):
+            raise Cancelled()
+        if current.get("leaseToken") != token:
+            raise LeaseLost()
+        last_checked = current_time
+
+    return check
+
+
 def run_job(job_id, config):
     store = make_store(config)
     job = store.one("jobs", {"id": job_id})
@@ -80,6 +100,7 @@ def run_job(job_id, config):
     checkpoints = set(job.get("checkpoints", []))
     stop_heartbeat = threading.Event()
     quota = None
+    check_cancel = cancellation_checker(store, job_id, token)
 
     def heartbeat():
         while not stop_heartbeat.wait(15):
@@ -90,13 +111,6 @@ def run_job(job_id, config):
 
     heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
     heartbeat_thread.start()
-
-    def check_cancel():
-        current = store.one("jobs", {"id": job_id})
-        if not current or current.get("cancelRequested"):
-            raise Cancelled()
-        if current.get("leaseToken") != token:
-            raise LeaseLost()
 
     def progress(phase, completed=0, total=0, message=None):
         check_cancel()
@@ -197,7 +211,7 @@ def run_job(job_id, config):
         logger.info("Stopped stale worker for %s", job_id)
     except DomainError as error:
         if error.code in {"INDEXING_SLICE_COMPLETE", "GEMINI_CAPACITY_WAIT", "GEMINI_RATE_LIMITED", "GEMINI_QUOTA_UNKNOWN", "GEMINI_QUOTA_EXHAUSTED"}:
-            delay = max(60, error.retry_after_seconds or 180)
+            delay = max(1, error.retry_after_seconds or 180)
             retry_at = (datetime.now(timezone.utc) + timedelta(seconds=delay)).isoformat()
             store.update("jobs", {"id": job_id, "leaseToken": token}, {"status": "queued", "phase": "waiting_for_capacity", "message": error.message, "error": None, "nextAttemptAt": retry_at, "heartbeatAt": now()})
             store.update("analyses", {"id": analysis_id}, {"status": "queued", "phase": "waiting_for_capacity", "error": None})

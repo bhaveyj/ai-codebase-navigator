@@ -73,16 +73,30 @@ def embedding_prompts(texts, settings: Settings, query=False):
     return [f"task: code retrieval | query: {text}" if query else f"title: Repository source | text: {text}" for text in texts]
 
 
-def embed_batch(texts, settings: Settings, query=False, quota=None):
+def embed_batch(texts, settings: Settings, query=False, quota=None, token_cache=None):
     client = ai_client(settings)
     config = {"output_dimensionality": settings.embedding_dimensions}
     if settings.embedding_model == "gemini-embedding-001":
         config["task_type"] = "CODE_RETRIEVAL_QUERY" if query else "RETRIEVAL_DOCUMENT"
     prompts = embedding_prompts(texts, settings, query)
     try:
-        reservation = quota.embedding(prompts, query=query) if quota else None
         # Strings would aggregate with Embedding 2. Each Content is one vector.
         contents = [types.Content(parts=[types.Part(text=prompt)]) for prompt in prompts]
+        exact_tokens = None
+        if quota and not query and token_cache and settings.gemini_count_embedding_tokens:
+            count_id = "token-count:" + hashlib.sha256(json.dumps([settings.embedding_model, prompts], ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
+            cached_count = token_cache.one("embedding_cache", {"id": count_id})
+            if cached_count:
+                exact_tokens = cached_count["tokenCount"]
+            else:
+                count_reservation = quota.token_count(prompts)
+                counted = client.models.count_tokens(model=settings.embedding_model, contents=contents)
+                exact_tokens = getattr(counted, "total_tokens", None)
+                if not isinstance(exact_tokens, int) or exact_tokens <= 0:
+                    raise ValueError("Gemini did not return a valid embedding token count")
+                quota.record_usage(count_reservation, exact_tokens)
+                token_cache.put("embedding_cache", {"id": count_id, "model": settings.embedding_model, "tokenCount": exact_tokens})
+        reservation = quota.embedding(prompts, query=query, exact_tokens=exact_tokens) if quota else None
         response = client.models.embed_content(model=settings.embedding_model, contents=contents, config=types.EmbedContentConfig(**config))
         usage = getattr(response, "usage_metadata", None)
         if usage:
@@ -128,25 +142,33 @@ def embed_chunks(store, chunks, settings, progress, check_cancel, on_backoff=Non
     completed = sum(1 for chunk in chunks if chunk.get("embedding"))
     progress(completed, len(chunks))
     remaining = []
-
-    def persist(chunk, vector):
-        nonlocal completed
-        check_cancel()
-        chunk["embedding"] = vector
-        store.put("chunks", chunk)
-        store.put("embedding_cache", {"id": chunk["inputHash"], "embedding": vector, "embeddingConfig": settings.embedding_config})
-        completed += 1
-        progress(completed, len(chunks))
-
+    pending = []
     for chunk in chunks:
         check_cancel()
-        if chunk.get("embedding"):
-            continue
-        cached = store.one("embedding_cache", {"id": chunk["inputHash"]})
-        if cached and cached.get("embeddingConfig") == settings.embedding_config:
-            persist(chunk, cached["embedding"])
-        else:
-            remaining.append(chunk)
+        if not chunk.get("embedding"):
+            pending.append(chunk)
+    # A resumed job may have thousands of chunks. Look up cached vectors in
+    # bounded groups instead of making one Mongo round trip for every chunk.
+    for offset in range(0, len(pending), 500):
+        check_cancel()
+        group = pending[offset:offset + 500]
+        cached = {item["id"]: item for item in store.find("embedding_cache", {
+            "id": {"$in": [chunk["inputHash"] for chunk in group]},
+            "embeddingConfig": settings.embedding_config,
+        })}
+        recovered = []
+        for chunk in group:
+            check_cancel()
+            hit = cached.get(chunk["inputHash"])
+            if hit and hit.get("embedding"):
+                chunk["embedding"] = hit["embedding"]
+                recovered.append(chunk)
+            else:
+                remaining.append(chunk)
+        if recovered:
+            store.put_many("chunks", recovered)
+            completed += len(recovered)
+            progress(completed, len(chunks))
     next_batch_at = time.monotonic()
     embedded_this_lease = 0
     start = 0
@@ -171,7 +193,7 @@ def embed_chunks(store, chunks, settings, progress, check_cancel, on_backoff=Non
             try:
                 started_at = time.monotonic()
                 if quota:
-                    vectors = embed_batch([chunk["embeddingText"] for chunk in batch], settings, quota=quota)
+                    vectors = embed_batch([chunk["embeddingText"] for chunk in batch], settings, quota=quota, token_cache=store)
                 else:
                     vectors = embed_batch([chunk["embeddingText"] for chunk in batch], settings)
                 break
@@ -194,11 +216,21 @@ def embed_chunks(store, chunks, settings, progress, check_cancel, on_backoff=Non
                 attempt += 1
         start += len(batch)
         next_batch_at = started_at + (60 * len(batch) / settings.embedding_inputs_per_minute if settings.embedding_inputs_per_minute else 0)
+        updated, cached_vectors = [], []
         for chunk, vector in zip(batch, vectors, strict=True):
-            persist(chunk, vector)
+            check_cancel()
+            chunk["embedding"] = vector
+            updated.append(chunk)
+            cached_vectors.append({"id": chunk["inputHash"], "embedding": vector, "embeddingConfig": settings.embedding_config})
+        # Both writes are idempotent. A crash between them still leaves the
+        # vectors on their chunks, so a restarted worker will not re-embed them.
+        store.put_many("chunks", updated)
+        store.put_many("embedding_cache", cached_vectors)
+        completed += len(updated)
+        progress(completed, len(chunks))
         embedded_this_lease += len(batch)
         if quota and embedded_this_lease >= settings.embedding_max_inputs_per_lease and start < len(remaining):
-            raise DomainError("INDEXING_SLICE_COMPLETE", "Indexing is continuing from saved embeddings shortly.", 429, retry_after_seconds=60)
+            raise DomainError("INDEXING_SLICE_COMPLETE", "Indexing is continuing from saved embeddings shortly.", 429, retry_after_seconds=10)
 
 
 def vector_pipeline(analysis_id, vector, settings, limit=20):

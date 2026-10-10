@@ -156,19 +156,32 @@ class QuotaGate:
         except redis.RedisError:
             logger.warning("Gemini token usage reconciliation unavailable")
 
-    def embedding(self, texts, *, query=False):
+    def _embedding_limits(self):
         s = self.settings
-        tokens = sum(estimate_tokens(text) for text in texts)
         rpm = max(1, math.floor(s.gemini_embedding_rpm * s.gemini_quota_fraction))
         tpm = max(1, math.floor(s.gemini_embedding_tpm * s.gemini_quota_fraction))
         index_rpm = max(1, rpm - s.gemini_query_rpm_reserve)
         index_tpm = max(1, tpm - s.gemini_query_tpm_reserve)
         daily = min(s.gemini_embedding_daily_budget,
                     max(1, math.floor(s.gemini_embedding_rpd * s.gemini_quota_fraction)) if s.gemini_embedding_rpd else s.gemini_embedding_daily_budget)
+        return rpm, tpm, daily, index_rpm, index_tpm, max(1, daily - s.gemini_query_daily_reserve)
+
+    def token_count(self, texts):
+        """Reserve a preflight call as well as its conservative input-token cost."""
+        rpm, tpm, daily, index_rpm, index_tpm, index_daily = self._embedding_limits()
+        return self._admit(self.settings.embedding_model, 1,
+                           sum(estimate_tokens(text) for text in texts),
+                           rpm, tpm, daily, True, index_rpm, index_tpm, index_daily)
+
+    def embedding(self, texts, *, query=False, exact_tokens=None):
+        rpm, tpm, daily, index_rpm, index_tpm, index_daily = self._embedding_limits()
+        # The exact count is for the same prefixed Content objects sent to
+        # Gemini. Retain a 25% margin for provider accounting differences.
+        tokens = math.ceil(exact_tokens * 1.25) if exact_tokens is not None else sum(estimate_tokens(text) for text in texts)
         try:
-            return self._admit(s.embedding_model, len(texts), tokens, rpm, tpm,
+            return self._admit(self.settings.embedding_model, len(texts), tokens, rpm, tpm,
                                daily, not query, index_rpm, index_tpm,
-                               max(1, daily - s.gemini_query_daily_reserve))
+                               index_daily)
         except DomainError as error:
             if query and error.code == "GEMINI_CAPACITY_WAIT":
                 raise DomainError(error.code, "Gemini search capacity is full. Retry this question shortly.", 429, retry_after_seconds=error.retry_after_seconds) from error

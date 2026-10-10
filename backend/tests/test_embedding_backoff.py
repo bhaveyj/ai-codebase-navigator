@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -76,6 +77,66 @@ def test_daily_rejection_splits_multi_input_batch_and_saves_remaining_vectors(mo
     assert len(store.find("embedding_cache")) == 5
 
 
+def test_larger_batch_survives_worker_lease_restart(monkeypatch, tmp_path):
+    store = LocalStore(tmp_path)
+    source = chunks(10)
+    store.put_many("chunks", source)
+    config = Settings(_env_file=None, embedding_batch_size=8, embedding_max_inputs_per_lease=8)
+    calls = []
+
+    def embed(texts, _settings, **_kwargs):
+        calls.append(len(texts))
+        return [[1.0] for _ in texts]
+
+    monkeypatch.setattr(rag, "embed_batch", embed)
+    with pytest.raises(DomainError) as caught:
+        rag.embed_chunks(store, store.find("chunks"), config, lambda *_: None, lambda: None, quota=object())
+    assert caught.value.code == "INDEXING_SLICE_COMPLETE"
+    assert caught.value.retry_after_seconds == 10
+    assert sum(bool(chunk.get("embedding")) for chunk in store.find("chunks")) == 8
+
+    rag.embed_chunks(store, store.find("chunks"), config, lambda *_: None, lambda: None, quota=object())
+    assert calls == [8, 2]
+    assert sum(bool(chunk.get("embedding")) for chunk in store.find("chunks")) == 10
+    assert len(store.find("embedding_cache")) == 10
+
+
+def test_resume_uses_bulk_cache_lookup_and_keeps_cached_vectors(monkeypatch, tmp_path):
+    store = LocalStore(tmp_path)
+    source = chunks(3)
+    store.put_many("chunks", source)
+    config = Settings(_env_file=None, embedding_batch_size=8)
+    store.put("embedding_cache", {"id": "h1", "embedding": [0.0, 1.0], "embeddingConfig": config.embedding_config})
+    original_find = store.find
+    lookups = []
+
+    def find(collection, query=None, *args, **kwargs):
+        if collection == "embedding_cache":
+            lookups.append(query)
+        return original_find(collection, query, *args, **kwargs)
+
+    def one(collection, query):
+        if collection == "embedding_cache":
+            raise AssertionError("cache lookup must be batched")
+        return original_find(collection, query, 1)[0]
+
+    calls = []
+
+    def embed(texts, _settings, **_kwargs):
+        calls.append(texts)
+        return [[1.0, 0.0] for _ in texts]
+
+    monkeypatch.setattr(store, "find", find)
+    monkeypatch.setattr(store, "one", one)
+    monkeypatch.setattr(rag, "embed_batch", embed)
+    rag.embed_chunks(store, store.find("chunks"), config, lambda *_: None, lambda: None, quota=object())
+
+    assert len(lookups) == 1
+    assert lookups[0]["id"]["$in"] == ["h0", "h1", "h2"]
+    assert calls == [["0", "2"]]
+    assert store.find("chunks", {"id": "c1"})[0]["embedding"] == [0.0, 1.0]
+
+
 def test_backoff_can_be_cancelled_without_waiting_for_entire_delay(monkeypatch):
     elapsed = [0]
     monkeypatch.setattr(rag.time, "monotonic", lambda: elapsed[0])
@@ -132,14 +193,16 @@ def test_worker_releases_lease_and_resumes_from_saved_vectors_after_capacity_wai
     def embed(*_, **__):
         calls.append(1)
         if len(calls) == 1:
-            raise DomainError("GEMINI_CAPACITY_WAIT", "Gemini minute budget is full", 429, retry_after_seconds=77)
+            raise DomainError("GEMINI_CAPACITY_WAIT", "Gemini minute budget is full", 429, retry_after_seconds=10)
         return [[1.0]]
 
     monkeypatch.setattr(rag, "embed_batch", embed)
+    started = datetime.now(timezone.utc)
     assert jobs.run_job(job_id, config) is None
     waiting = store.one("jobs", {"id": job_id})
     assert waiting["status"] == "queued" and waiting["phase"] == "waiting_for_capacity"
     assert waiting["nextAttemptAt"] > jobs.now()
+    assert 10 <= (datetime.fromisoformat(waiting["nextAttemptAt"]) - started).total_seconds() < 20
     assert store.one("analyses", {"id": analysis_id})["graphReady"]
     store.update("jobs", {"id": job_id}, {"nextAttemptAt": None})
     assert jobs.run_job(job_id, config) is None

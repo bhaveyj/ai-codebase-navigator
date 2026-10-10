@@ -27,7 +27,22 @@ def test_gate_uses_source_input_count_and_prefix_tokens():
     assert argv[7] == 2  # Redis script arguments follow the four keys and timestamp.
     assert argv[8] == sum(estimate_tokens(s) for s in ["title: Repository source | text: abc", "title: Repository source | text: xyz"])
     assert argv[9:11] == (70, 21000)
+    assert argv[11] == 700
     assert argv[12:14] == (60, 18000)
+    assert argv[14] == 675
+
+
+def test_token_count_preflight_is_charged_and_exact_embedding_keeps_margin():
+    calls = []
+    client = SimpleNamespace(eval=lambda *args: (calls.append(args) or [1, 0, b"ok"]), close=lambda: None)
+    gate = QuotaGate(Settings(_env_file=None), client)
+    texts = ["title: Repository source | text: first", "title: Repository source | text: second"]
+    gate.token_count(texts)
+    gate.embedding(texts, exact_tokens=22)
+    assert calls[0][7] == 1
+    assert calls[0][8] == sum(estimate_tokens(text) for text in texts)
+    assert calls[1][7] == 2
+    assert calls[1][8] == 28  # 22 tokens with a 25% safety margin.
 
 
 def test_gate_returns_retry_without_sending_provider_request():
