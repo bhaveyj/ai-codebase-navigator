@@ -118,7 +118,7 @@ def run_job(job_id, config):
         store.update("analyses", {"id": analysis_id}, {"status": "running", "phase": phase, "error": None})
 
     def embedding_backoff(delay, completed, total):
-        progress("embedding_backoff", completed, total, "Gemini rate limit reached. Saved embeddings are retained; indexing resumes automatically.")
+        progress("embedding_backoff", completed, total, "Embedding provider rate limit reached. Saved embeddings are retained; indexing resumes automatically.")
         retry_at = (datetime.now(timezone.utc) + timedelta(seconds=delay)).isoformat()
         store.update("jobs", {"id": job_id, "leaseToken": token}, {"nextAttemptAt": retry_at})
 
@@ -129,6 +129,8 @@ def run_job(job_id, config):
 
     try:
         analysis = store.one("analyses", {"id": analysis_id})
+        # A queued legacy job must resume with its original chunk and vector space.
+        config = config.for_analysis_profile(analysis["profile"])
         repo = store.one("repositories", {"id": analysis["repositoryId"]})
         if "fetching" not in checkpoints:
             progress("fetching", message="Fetching the pinned source snapshot")
@@ -166,10 +168,13 @@ def run_job(job_id, config):
             counts["chunks"] = len(chunks)
             store.update("analyses", {"id": analysis_id}, {"counts": counts})
             checkpoint("chunks")
-        if store.is_mongo and config.gemini_api_key:
-            quota = QuotaGate(config)
+        embedding_ready = (bool(config.cloudflare_account_id and config.cloudflare_api_token)
+                           if config.effective_embedding_provider == "cloudflare" else bool(config.gemini_api_key))
+        if store.is_mongo and embedding_ready:
+            if config.effective_embedding_provider == "gemini" or config.effective_answer_provider == "gemini":
+                quota = QuotaGate(config)
             if "embeddings" not in checkpoints:
-                progress("creating_embeddings", message="Creating Gemini embeddings")
+                progress("creating_embeddings", message="Creating source embeddings")
                 chunks = store.find("chunks", {"analysisId": analysis_id})
                 embed_chunks(store, chunks, config, lambda done, total: progress("creating_embeddings", done, total), check_cancel, on_backoff=embedding_backoff, quota=quota)
                 checkpoint("embeddings")
@@ -191,14 +196,15 @@ def run_job(job_id, config):
                     overview_data["blocks"] = summary["blocks"]
                     store.update("analyses", {"id": analysis_id}, {"overview": overview_data})
                 except DomainError as error:
-                    if error.code in {"GEMINI_CAPACITY_WAIT", "GEMINI_RATE_LIMITED", "GEMINI_QUOTA_UNKNOWN", "GEMINI_QUOTA_EXHAUSTED"}:
+                    if error.code in {"GEMINI_CAPACITY_WAIT", "GEMINI_RATE_LIMITED", "GEMINI_QUOTA_UNKNOWN", "GEMINI_QUOTA_EXHAUSTED", "CLOUDFLARE_RATE_LIMITED", "CLOUDFLARE_QUOTA_EXHAUSTED", "GROQ_RATE_LIMITED"}:
                         raise
                     current = store.one("analyses", {"id": analysis_id})
                     store.update("analyses", {"id": analysis_id}, {"warnings": current["warnings"] + ["Architecture summary could not be generated. Source, graph and retrieval remain available."]})
                 checkpoint("summary")
         else:
             current = store.one("analyses", {"id": analysis_id})
-            note = "Graph and source analysis complete. AI answers require MongoDB Atlas and GEMINI_API_KEY in production mode." if not store.is_mongo else "Graph and source analysis complete. Configure GEMINI_API_KEY and retry to create embeddings."
+            note = ("Graph and source analysis complete. AI answers require MongoDB Atlas and a configured embedding provider."
+                    if not store.is_mongo else "Graph and source analysis complete. Configure the embedding provider and retry to create embeddings.")
             store.update("analyses", {"id": analysis_id}, {"warnings": list(dict.fromkeys(current["warnings"] + [note]))})
         check_cancel()
         store.update("analyses", {"id": analysis_id}, {"status": "ready", "phase": "ready", "error": None})
@@ -210,12 +216,12 @@ def run_job(job_id, config):
     except LeaseLost:
         logger.info("Stopped stale worker for %s", job_id)
     except DomainError as error:
-        if error.code in {"INDEXING_SLICE_COMPLETE", "GEMINI_CAPACITY_WAIT", "GEMINI_RATE_LIMITED", "GEMINI_QUOTA_UNKNOWN", "GEMINI_QUOTA_EXHAUSTED"}:
+        if error.code in {"INDEXING_SLICE_COMPLETE", "GEMINI_CAPACITY_WAIT", "GEMINI_RATE_LIMITED", "GEMINI_QUOTA_UNKNOWN", "GEMINI_QUOTA_EXHAUSTED", "CLOUDFLARE_RATE_LIMITED", "CLOUDFLARE_QUOTA_EXHAUSTED", "GROQ_RATE_LIMITED"}:
             delay = max(1, error.retry_after_seconds or 180)
             retry_at = (datetime.now(timezone.utc) + timedelta(seconds=delay)).isoformat()
             store.update("jobs", {"id": job_id, "leaseToken": token}, {"status": "queued", "phase": "waiting_for_capacity", "message": error.message, "error": None, "nextAttemptAt": retry_at, "heartbeatAt": now()})
             store.update("analyses", {"id": analysis_id}, {"status": "queued", "phase": "waiting_for_capacity", "error": None})
-            logger.info("Analysis %s waiting for Gemini capacity until %s", analysis_id, retry_at)
+            logger.info("Analysis %s waiting for provider capacity until %s", analysis_id, retry_at)
             return None
         logger.warning("Analysis %s failed: %s", analysis_id, error.code)
         store.update("jobs", {"id": job_id, "leaseToken": token}, {"status": "failed", "message": error.message, "error": error.message, "heartbeatAt": now()})

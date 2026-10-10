@@ -1,19 +1,21 @@
 # AI Codebase Navigator
 
 A local-first code explorer with a React Flow dependency graph, source viewer,
-FastAPI backend, asynchronous repository analysis, and Gemini answers grounded in
-MongoDB Atlas retrieval. JavaScript and TypeScript are the first analyzer; the
+FastAPI backend, asynchronous repository analysis, and source-grounded answers
+using MongoDB Atlas retrieval. JavaScript and TypeScript are the first analyzer; the
 analysis protocol is designed for additional language adapters.
 
 ## Required configuration
 
-Copy `.env.example` to `.env` and fill these two values locally. Do not paste
+Copy `.env.example` to `.env` and fill the values for your chosen providers locally. Do not paste
 credentials into chat or commit `.env`.
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `MONGODB_URI` | For full mode | Atlas connection string with a database user and password |
-| `GEMINI_API_KEY` | For AI | Google AI Studio Gemini API key |
+| `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | For Cloudflare embeddings | Workers AI account and API token |
+| `GROQ_API_KEY` | For Groq answers | Groq API key |
+| `GEMINI_API_KEY` | For Gemini embeddings or answers | Google AI Studio Gemini API key |
 | `GITHUB_TOKEN` | Optional | Higher GitHub API limits for public repository fetching |
 
 ### MongoDB Atlas
@@ -28,7 +30,9 @@ credentials into chat or commit `.env`.
    an Atlas management API key.
 
 The initialization command creates normal collection indexes plus
-`chunks_vector_v1` (768-dimensional cosine vector) and `chunks_search_v1`.
+`chunks_search_v1` and a cosine vector index for the selected embedding provider:
+`chunks_vector_v1` (768 dimensions) for Gemini or `chunks_vector_v2` (1024 dimensions)
+for Cloudflare Qwen. An existing Gemini index is retained when Cloudflare is selected.
 Atlas builds search indexes asynchronously. The worker checks them before
 enabling AI retrieval for an analysis.
 
@@ -39,6 +43,31 @@ Create a key in [Google AI Studio](https://aistudio.google.com/apikey) and put i
 model and embedding model. Defaults are `gemini-3.5-flash` and
 `gemini-embedding-2`; both can be changed in `.env`. Changing embedding models or
 dimensions requires reindexing and a compatible vector index.
+
+### Cloudflare Qwen embeddings and Groq answers
+
+Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for Workers AI and
+`GROQ_API_KEY` for Groq. With the default `EMBEDDING_PROVIDER=auto` and
+`ANSWER_PROVIDER=auto`, the app selects Cloudflare Qwen3-Embedding-0.6B for
+embeddings when both Cloudflare credentials are present, and Groq
+`openai/gpt-oss-20b` for answers when the Groq key is present. Otherwise each
+provider falls back independently to Gemini. You can explicitly set
+`EMBEDDING_PROVIDER=cloudflare|gemini` and `ANSWER_PROVIDER=groq|gemini`.
+
+The new chunk profile groups nearby small imports, declarations, and statements
+into source-exact spans of at most 1,800 characters. This reduces embedding inputs
+without losing citable line ranges. Cloudflare batches multiple chunks per
+request and uses the same Qwen model for repository chunks and query embeddings.
+Rate-limited jobs retain completed vectors and resume after a cooldown; a
+Cloudflare daily-allocation response waits for the next UTC reset. The supported
+Cloudflare Qwen model emits 1024-dimensional vectors. Submitting a repository
+again under the new profile creates a new analysis; older Gemini analyses keep
+their original vector space and remain queryable with a Gemini key. Groq answers
+use a 10,000-character source-evidence cap, a 15,000-character combined
+request-evidence cap, compact graph edges, strict JSON output for supported
+GPT-OSS models, and a 3,072-token completion cap
+by default to fit its free-tier token budget; the
+corresponding `GROQ_*` values in `.env.example` can be adjusted.
 
 ## Full stack with Docker
 
@@ -91,7 +120,7 @@ python -m venv .venv
 Open **http://127.0.0.1:5173**. `scripts/dev.py` explicitly selects local mode;
 it uses disk persistence and a background executor. It can analyze real public
 GitHub repositories and the bundled Beacon Store source fixture. Vector search
-and Gemini answers require full mode; graph dependency actions remain available.
+and AI answers require full mode; graph dependency actions remain available.
 
 Use `NODE_BINARY` to select a specific Node executable. The development script
 starts API and frontend together and stops both on Ctrl+C. API and worker
@@ -106,7 +135,7 @@ React / React Flow / Monaco
           │            │
      Redis / Celery    Search + Vector Search
           │            │
-     Python worker ── Gemini embeddings / generation
+     Python worker ── Cloudflare or Gemini embeddings; Groq or Gemini answers
           │
      Node TypeScript analyzer (isolated subprocess)
 ```
@@ -138,7 +167,7 @@ The bundled fixture contains React components, Express routes, authentication,
 rate limiting, and checkout flow. It is intentionally fictional source, and its
 graph is generated by the real analyzer.
 
-For a configured Atlas/Gemini deployment, index the fixture through **Explore the
+For a configured Atlas/provider deployment, index the fixture through **Explore the
 example repository** and run the retrieval evaluation against its analysis ID:
 
 ```sh
@@ -158,7 +187,7 @@ python scripts/smoke.py --demo --rag
 python scripts/smoke.py --url https://github.com/sindresorhus/p-limit --rag
 ```
 
-To run the same graph explorer without Atlas/Gemini:
+To run the same graph explorer without Atlas or AI providers:
 
 ```sh
 docker compose -f compose.yaml -f compose.local.yaml up -d api web

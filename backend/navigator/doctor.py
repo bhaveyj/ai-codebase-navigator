@@ -6,6 +6,9 @@ import re
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
+from urllib.parse import quote
+
+import httpx
 
 from .config import Settings, get_settings
 
@@ -45,11 +48,23 @@ def runtime_checks(settings: Settings) -> list[Check]:
     else:
         checks.append(Check("analyzer", "skip", "Analyzer dependency check requires the configured Node.js runtime."))
 
-    for name, configured in (("MONGODB_URI", bool(settings.mongodb_uri.strip())), ("GEMINI_API_KEY", bool(settings.gemini_api_key.strip()))):
+    embedding_provider = settings.effective_embedding_provider
+    answer_provider = settings.effective_answer_provider
+    checks.append(Check("embedding_provider", "ok", f"Using {embedding_provider} for source and question embeddings."))
+    checks.append(Check("answer_provider", "ok", f"Using {answer_provider} for repository answers."))
+    required_credentials = [("MONGODB_URI", bool(settings.mongodb_uri.strip()))]
+    if "gemini" in {embedding_provider, answer_provider}:
+        required_credentials.append(("GEMINI_API_KEY", bool(settings.gemini_api_key.strip())))
+    if embedding_provider == "cloudflare":
+        required_credentials.extend((("CLOUDFLARE_ACCOUNT_ID", bool(settings.cloudflare_account_id.strip())),
+                                     ("CLOUDFLARE_API_TOKEN", bool(settings.cloudflare_api_token.strip()))))
+    if answer_provider == "groq":
+        required_credentials.append(("GROQ_API_KEY", bool(settings.groq_api_key.strip())))
+    for name, configured in required_credentials:
         status = "ok" if configured else "error" if settings.mode == "production" else "skip"
-        message = "Configured; credential values are never displayed." if configured else "Missing; add this value to the project .env for full Atlas/Gemini functionality."
+        message = "Configured; credential values are never displayed." if configured else f"Missing; add {name} to the project .env."
         checks.append(Check(name, status, message))
-    checks.append(Check("mode", "ok", "Full Atlas and background-worker mode." if settings.mode == "production" else "Local graph preview; Atlas retrieval and Gemini answers are disabled."))
+    checks.append(Check("mode", "ok", "Full Atlas and background-worker mode." if settings.mode == "production" else "Local graph preview; Atlas retrieval and AI answers are disabled."))
     return checks
 
 
@@ -91,30 +106,76 @@ def service_checks(settings: Settings, initialize: bool = False) -> list[Check]:
     else:
         checks.append(Check("redis", "skip", "Local graph preview uses an in-process worker."))
 
-    if settings.gemini_api_key.strip():
+    embedding_provider = settings.effective_embedding_provider
+    answer_provider = settings.effective_answer_provider
+    if "gemini" in {embedding_provider, answer_provider} and settings.gemini_api_key.strip():
         from google import genai
         from google.genai import types
 
         client = None
         try:
             client = genai.Client(api_key=settings.gemini_api_key, http_options=types.HttpOptions(timeout=10000))
-            client.models.get(model=settings.gemini_model)
-            checks.append(Check("gemini_model", "ok", "Configured generation-model metadata is accessible."))
-            client.models.get(model=settings.embedding_model)
-            checks.append(Check("embedding_model", "ok", "Configured embedding-model metadata is accessible. No text or embeddings were generated."))
+            if answer_provider == "gemini":
+                client.models.get(model=settings.gemini_model)
+                checks.append(Check("gemini_model", "ok", "Configured generation-model metadata is accessible."))
+            if embedding_provider == "gemini":
+                client.models.get(model=settings.embedding_model)
+                checks.append(Check("embedding_model", "ok", "Configured embedding-model metadata is accessible. No text or embeddings were generated."))
         except Exception:
             checks.append(Check("gemini", "error", "Gemini model check failed. Verify the key, configured model IDs, project access, and network connectivity."))
         finally:
             if client is not None:
                 client.close()
-    else:
+    elif "gemini" in {embedding_provider, answer_provider}:
         checks.append(Check("gemini", "error" if settings.mode == "production" else "skip", "GEMINI_API_KEY is required for the model metadata check."))
+
+    if embedding_provider == "cloudflare":
+        if settings.cloudflare_account_id.strip() and settings.cloudflare_api_token.strip():
+            try:
+                account = quote(settings.cloudflare_account_id, safe="")
+                response = httpx.get(
+                    f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/models/schema",
+                    headers={"Authorization": f"Bearer {settings.cloudflare_api_token}"},
+                    params={"model": settings.cloudflare_embedding_model},
+                    timeout=10,
+                    follow_redirects=False,
+                )
+                body = response.json() if response.status_code == 200 else None
+                if not isinstance(body, dict) or body.get("success") is not True or not isinstance(body.get("result"), dict):
+                    raise ValueError("Model metadata unavailable")
+                checks.append(Check("cloudflare_embedding_model", "ok", "Configured Workers AI model metadata is accessible. No embeddings were generated."))
+            except Exception:
+                checks.append(Check("cloudflare_embedding_model", "error", "Cloudflare model check failed. Verify the account ID, token, model ID, and Workers AI permissions."))
+        else:
+            checks.append(Check("cloudflare_embedding_model", "error" if settings.mode == "production" else "skip", "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are required for the model metadata check."))
+
+    if answer_provider == "groq":
+        if settings.groq_api_key.strip():
+            try:
+                response = httpx.get(
+                    "https://api.groq.com/openai/v1/models",
+                    headers={"Authorization": f"Bearer {settings.groq_api_key}"},
+                    timeout=10,
+                    follow_redirects=False,
+                )
+                body = response.json() if response.status_code == 200 else None
+                models = body.get("data") if isinstance(body, dict) else None
+                if not isinstance(models, list) or not any(
+                    isinstance(item, dict) and item.get("id") == settings.groq_model and item.get("active") is not False
+                    for item in models
+                ):
+                    raise ValueError("Configured model unavailable")
+                checks.append(Check("groq_model", "ok", "Configured Groq model metadata is accessible. No answer was generated."))
+            except Exception:
+                checks.append(Check("groq_model", "error", "Groq model check failed. Verify GROQ_API_KEY, the model ID, and network connectivity."))
+        else:
+            checks.append(Check("groq_model", "error" if settings.mode == "production" else "skip", "GROQ_API_KEY is required for the model metadata check."))
     return checks
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--services", action="store_true", help="Probe configured MongoDB, Redis, and Gemini model metadata without generating content.")
+    parser.add_argument("--services", action="store_true", help="Probe configured MongoDB, Redis, and selected AI model metadata without generating content.")
     parser.add_argument("--initialize", action="store_true", help="Also create MongoDB collections/indexes and request Atlas Search indexes (implies --services).")
     parser.add_argument("--json", action="store_true", help="Emit machine-readable status without credential values.")
     args = parser.parse_args(argv)

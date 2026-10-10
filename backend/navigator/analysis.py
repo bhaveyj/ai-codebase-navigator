@@ -136,9 +136,79 @@ def build_chunks(files, regions, nodes, settings: Settings):
                 char_count += len(line)
             if text_parts:
                 _append_chunk(chunks, file, region, symbols, start, min(region["endLine"], len(lines)), "".join(text_parts), settings)
-            if len(chunks) > settings.max_chunks:
-                raise DomainError("CHUNK_LIMIT", "Repository exceeds the 15,000-chunk limit. Try a smaller repository.")
+    if settings.chunk_profile_version >= 2:
+        chunks = _group_small_chunks(chunks, files, settings)
+    if len(chunks) > settings.max_chunks:
+        raise DomainError("CHUNK_LIMIT", "Repository exceeds the 15,000-chunk limit. Try a smaller repository.")
     return chunks
+
+
+def _group_type(chunk):
+    if len(chunk["text"]) > 700:
+        return None
+    source = chunk["text"].lstrip()
+    if source.startswith("import ") or source.startswith("export * from ") or (source.startswith("export { ") and " from " in source):
+        return "imports"
+    if chunk.get("symbolId"):
+        return "declarations"
+    if chunk["kind"] in {"statement", "top-level"}:
+        return "statements"
+    return None
+
+
+def _group_small_chunks(chunks, files, settings):
+    """Pack nearby small regions while retaining an exact citable source span."""
+    by_file = {file["id"]: file for file in files}
+    lines_by_file = {}
+    offsets_by_file = {}
+
+    def source_lines(file_id):
+        if file_id not in lines_by_file:
+            lines = by_file[file_id]["content"].splitlines(keepends=True)
+            offsets = [0]
+            for line in lines:
+                offsets.append(offsets[-1] + len(line))
+            lines_by_file[file_id] = lines
+            offsets_by_file[file_id] = offsets
+        return lines_by_file[file_id], offsets_by_file[file_id]
+
+    result = []
+    group = []
+
+    def flush():
+        if not group:
+            return
+        if len(group) == 1:
+            result.append(group[0])
+            group.clear()
+            return
+        file = by_file[group[0]["fileId"]]
+        start, end = group[0]["startLine"], group[-1]["endLine"]
+        lines, _ = source_lines(file["id"])
+        source = "".join(lines[start - 1:end])
+        names = list(dict.fromkeys(chunk["symbol"] for chunk in group if chunk.get("symbol")))
+        region = {"kind": _group_type(group[0]), "signature": ", ".join(names[:8])}
+        _append_chunk(result, file, region, {}, start, end, source, settings)
+        group.clear()
+
+    for chunk in chunks:
+        kind = _group_type(chunk)
+        if group:
+            last = group[-1]
+            same_file = chunk["fileId"] == last["fileId"]
+            proposed_chars = 1801
+            if same_file:
+                _, offsets = source_lines(chunk["fileId"])
+                proposed_chars = offsets[chunk["endLine"]] - offsets[group[0]["startLine"] - 1]
+            if (not kind or kind != _group_type(group[0]) or not same_file
+                    or chunk["startLine"] > last["endLine"] + 3 or proposed_chars > 1800):
+                flush()
+        if kind:
+            group.append(chunk)
+        else:
+            result.append(chunk)
+    flush()
+    return result
 
 
 def _append_chunk(chunks, file, region, symbols, start, end, text, settings, offset=0):

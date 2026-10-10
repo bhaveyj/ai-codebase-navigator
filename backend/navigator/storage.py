@@ -192,9 +192,9 @@ def create_indexes(store: MongoStore, settings: Settings, search=True):
     store.db.jobs.create_index([("status", 1), ("heartbeatAt", 1)])
     if search:
         existing = {index["name"] for index in store.db.chunks.list_search_indexes()}
-        if settings.vector_index not in existing:
-            store.db.chunks.create_search_index(SearchIndexModel(name=settings.vector_index, type="vectorSearch", definition={"fields": [
-                {"type": "vector", "path": "embedding", "numDimensions": settings.embedding_dimensions, "similarity": "cosine"},
+        if settings.effective_vector_index not in existing:
+            store.db.chunks.create_search_index(SearchIndexModel(name=settings.effective_vector_index, type="vectorSearch", definition={"fields": [
+                {"type": "vector", "path": settings.effective_embedding_field, "numDimensions": settings.effective_embedding_dimensions, "similarity": "cosine"},
                 *[{"type": "filter", "path": field} for field in ("analysisId", "repositoryId", "embeddingConfig", "language")],
             ]}))
         if settings.search_index not in existing:

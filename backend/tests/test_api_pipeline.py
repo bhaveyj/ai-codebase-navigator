@@ -112,6 +112,26 @@ def test_quota_error_returns_retry_after_header(client, monkeypatch):
     assert response.headers["Retry-After"] == "61"
 
 
+def test_chat_uses_saved_embedding_profile_after_provider_change(client, monkeypatch):
+    client.app.state.settings.cloudflare_account_id = "account"
+    client.app.state.settings.cloudflare_api_token = "token"
+    client.app.state.settings.groq_api_key = "groq-key"
+    client.app.state.store.update("analyses", {"id": client.analysis_id},
+                                  {"profile": "typescript-v1:chunk-v1:gemini-embedding-2:768:code-retrieval-v1"})
+    selected = []
+
+    def answer(_store, _analysis, _request, settings, _quota):
+        selected.append((settings.effective_embedding_provider, settings.effective_answer_provider,
+                         settings.effective_vector_index, settings.chunk_profile_version))
+        return {"mode": "rag", "blocks": [{"text": "Supported.", "kind": "fact", "citationIds": []}],
+                "citations": [], "relatedNodeIds": [], "warnings": []}
+
+    monkeypatch.setattr(main, "answer_question", answer)
+    response = client.post(f"/api/v1/analyses/{client.analysis_id}/chat", json={"message": "What does this do?"})
+    assert response.status_code == 200
+    assert selected == [("gemini", "groq", "chunks_vector_v1", 1)]
+
+
 def test_submission_reuses_commit_snapshot_and_deletion_cleans_artifacts(client):
     again = client.post("/api/v1/demo")
     assert again.status_code == 200

@@ -236,7 +236,7 @@ def create_app(config: Settings | None = None):
             # Allow retrying a failed optional summary without redoing source or vectors.
             await asyncio.to_thread(app.state.store.update, "jobs", {"id": job_id}, {"checkpoints": [stage for stage in current.get("checkpoints", []) if stage != "summary"]})
         phase = "waiting_for_quota" if retry_at else "queued"
-        await asyncio.to_thread(app.state.store.update, "jobs", {"id": job_id}, {"status": "queued", "phase": phase, "cancelRequested": False, "error": None, "nextAttemptAt": retry_at.isoformat() if retry_at else None, "message": "Saved embeddings are retained. Indexing resumes after the expected Gemini quota reset." if retry_at else "Resuming analysis from saved checkpoints", "heartbeatAt": now()})
+        await asyncio.to_thread(app.state.store.update, "jobs", {"id": job_id}, {"status": "queued", "phase": phase, "cancelRequested": False, "error": None, "nextAttemptAt": retry_at.isoformat() if retry_at else None, "message": "Saved embeddings are retained. Indexing resumes at the requested time." if retry_at else "Resuming analysis from saved checkpoints", "heartbeatAt": now()})
         await asyncio.to_thread(app.state.store.update, "analyses", {"id": current["analysisId"]}, {"status": "queued", "phase": phase, "error": None})
         if not retry_at:
             await asyncio.to_thread(launch, job_id, config)
@@ -296,7 +296,8 @@ def create_app(config: Settings | None = None):
         if app.state.chat_slots.locked():
             raise DomainError("CHAT_BUSY", "Two answers are already being generated. Retry shortly.", 429, retry_after_seconds=5)
         async with app.state.chat_slots:
-            return await asyncio.to_thread(answer_question, app.state.store, analysis, body, config, app.state.quota)
+            analysis_config = config.for_analysis_profile(analysis["profile"])
+            return await asyncio.to_thread(answer_question, app.state.store, analysis, body, analysis_config, app.state.quota)
 
     @app.delete("/api/v1/repositories/{repository_id}", status_code=204)
     async def remove_repository(repository_id: str):

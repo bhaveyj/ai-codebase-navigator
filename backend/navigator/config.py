@@ -29,6 +29,17 @@ class Settings(BaseSettings):
     gemini_timeout_seconds: int = Field(120, ge=10, le=180, alias="GEMINI_TIMEOUT_SECONDS")
     gemini_thinking_level: Literal["low", "medium", "high"] = Field("low", alias="GEMINI_THINKING_LEVEL")
     embedding_model: str = Field("gemini-embedding-2", alias="GEMINI_EMBEDDING_MODEL")
+    embedding_provider: Literal["auto", "gemini", "cloudflare"] = Field("auto", alias="EMBEDDING_PROVIDER")
+    answer_provider: Literal["auto", "gemini", "groq"] = Field("auto", alias="ANSWER_PROVIDER")
+    cloudflare_account_id: str = Field("", alias="CLOUDFLARE_ACCOUNT_ID")
+    cloudflare_api_token: str = Field("", alias="CLOUDFLARE_API_TOKEN")
+    cloudflare_embedding_model: str = Field("@cf/qwen/qwen3-embedding-0.6b", alias="CLOUDFLARE_EMBEDDING_MODEL")
+    cloudflare_timeout_seconds: int = Field(60, ge=5, le=180, alias="CLOUDFLARE_TIMEOUT_SECONDS")
+    groq_api_key: str = Field("", alias="GROQ_API_KEY")
+    groq_model: str = Field("openai/gpt-oss-20b", alias="GROQ_MODEL")
+    groq_timeout_seconds: int = Field(120, ge=10, le=180, alias="GROQ_TIMEOUT_SECONDS")
+    groq_answer_max_evidence_chars: int = Field(10000, ge=4000, le=24000, alias="GROQ_ANSWER_MAX_EVIDENCE_CHARS")
+    groq_max_completion_tokens: int = Field(3072, ge=512, le=8192, alias="GROQ_MAX_COMPLETION_TOKENS")
     github_token: str = Field("", alias="GITHUB_TOKEN")
     allowed_origins: str = Field("http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000,http://127.0.0.1:8000,http://localhost:8080,http://127.0.0.1:8080", alias="NAVIGATOR_ALLOWED_ORIGINS")
     allowed_hosts: str = Field("localhost,127.0.0.1,testserver,api", alias="NAVIGATOR_ALLOWED_HOSTS")
@@ -66,6 +77,36 @@ class Settings(BaseSettings):
     embedding_batch_retries: int = Field(5, ge=0, le=8, alias="GEMINI_EMBEDDING_BATCH_RETRIES")
     vector_index: str = "chunks_vector_v1"
     search_index: str = "chunks_search_v1"
+    chunk_profile_version: int = Field(2, ge=1, le=2, exclude=True)
+
+    @property
+    def effective_embedding_provider(self) -> str:
+        if self.embedding_provider != "auto":
+            return self.embedding_provider
+        return "cloudflare" if self.cloudflare_account_id and self.cloudflare_api_token else "gemini"
+
+    @property
+    def effective_answer_provider(self) -> str:
+        if self.answer_provider != "auto":
+            return self.answer_provider
+        return "groq" if self.groq_api_key else "gemini"
+
+    @property
+    def effective_embedding_model(self) -> str:
+        return self.cloudflare_embedding_model if self.effective_embedding_provider == "cloudflare" else self.embedding_model
+
+    @property
+    def effective_embedding_dimensions(self) -> int:
+        # The Cloudflare-hosted Qwen3 0.6B endpoint returns 1024-dimensional vectors.
+        return 1024 if self.effective_embedding_provider == "cloudflare" else self.embedding_dimensions
+
+    @property
+    def effective_vector_index(self) -> str:
+        return "chunks_vector_v2" if self.effective_embedding_provider == "cloudflare" else self.vector_index
+
+    @property
+    def effective_embedding_field(self) -> str:
+        return "cloudflareEmbedding" if self.effective_embedding_provider == "cloudflare" else "embedding"
 
     @model_validator(mode="after")
     def validate_quota_reserves(self):
@@ -86,11 +127,28 @@ class Settings(BaseSettings):
 
     @property
     def embedding_config(self) -> str:
-        return f"{self.embedding_model}:{self.embedding_dimensions}:code-retrieval-v1"
+        return f"{self.effective_embedding_model}:{self.effective_embedding_dimensions}:code-retrieval-v1"
 
     @property
     def analysis_profile(self) -> str:
-        return f"typescript-v1:chunk-v1:{self.embedding_config}"
+        return f"typescript-v1:chunk-v{self.chunk_profile_version}:{self.embedding_config}"
+
+    def for_analysis_profile(self, profile: str) -> "Settings":
+        """Use an existing analysis's embedding space when the default changes."""
+        try:
+            prefix, model, dimensions, retrieval = profile.rsplit(":", 3)
+            if retrieval != "code-retrieval-v1" or prefix not in {"typescript-v1:chunk-v1", "typescript-v1:chunk-v2"}:
+                raise ValueError
+            dimension_count = int(dimensions)
+        except (ValueError, AttributeError) as error:
+            raise ValueError("Unsupported analysis profile") from error
+        if model.startswith("@cf/"):
+            if dimension_count != 1024:
+                raise ValueError("Unsupported Cloudflare embedding dimensions")
+            return self.model_copy(update={"embedding_provider": "cloudflare", "cloudflare_embedding_model": model,
+                                           "chunk_profile_version": int(prefix[-1])})
+        return self.model_copy(update={"embedding_provider": "gemini", "embedding_model": model,
+                                       "embedding_dimensions": dimension_count, "chunk_profile_version": int(prefix[-1])})
 
 
 @lru_cache
