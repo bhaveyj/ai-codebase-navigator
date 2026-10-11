@@ -23,7 +23,7 @@ def test_auto_selection_and_legacy_analysis_profile_keep_separate_vector_spaces(
     current = cloudflare_settings()
     assert current.effective_embedding_provider == "cloudflare"
     assert current.effective_answer_provider == "groq"
-    assert current.analysis_profile.startswith("typescript-v1:chunk-v2:@cf/qwen/")
+    assert current.analysis_profile.startswith("multilang-v1:chunk-v2:@cf/qwen/")
     assert current.effective_embedding_dimensions == 1024
     new_vector = rag.vector_pipeline("new", [0.0] * 1024, current)[0]["$vectorSearch"]
     assert new_vector["index"] == "chunks_vector_v2" and new_vector["path"] == "cloudflareEmbedding"

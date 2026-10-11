@@ -2,8 +2,8 @@
 
 A local-first code explorer with a React Flow dependency graph, source viewer,
 FastAPI backend, asynchronous repository analysis, and source-grounded answers
-using MongoDB Atlas retrieval. JavaScript and TypeScript are the first analyzer; the
-analysis protocol is designed for additional language adapters.
+using MongoDB Atlas retrieval. JavaScript, TypeScript, Python, and Java repositories
+are supported by static analysis adapters.
 
 ## Required configuration
 
@@ -137,13 +137,14 @@ React / React Flow / Monaco
           │            │
      Python worker ── Cloudflare or Gemini embeddings; Groq or Gemini answers
           │
-     Node TypeScript analyzer (isolated subprocess)
+     Node TypeScript analyzer (isolated subprocess) + Python/Java static adapters
 ```
 
 Each repository is pinned to a commit and analysis profile. The graph, chunks,
 source viewer, and citations use the same analysis-scoped IDs. The analyzer uses
-the TypeScript Compiler API against an approved in-memory file map; it never
-installs or executes repository code. Import edges describe static dependencies;
+the TypeScript Compiler API against an approved in-memory file map. Python uses
+the standard AST parser; Java uses structural source scanning. No adapter installs
+or executes repository code. Import edges describe static dependencies;
 call edges are emitted only for resolved targets. Unknown relationships remain
 diagnostics.
 
@@ -151,8 +152,7 @@ The practical implementation plan is in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 The adapter contract is described in [CONTRACT.md](CONTRACT.md).
 Completed live checks and their limits are recorded in [VALIDATION.md](VALIDATION.md).
 Public response schemas generate [OpenAPI](contracts/openapi.json) and frontend
-types with `python scripts/generate_contracts.py`. Python, Go,
-Rust, and Java are planned adapters, not currently advertised as analyzed languages.
+types with `python scripts/generate_contracts.py`. Go and Rust remain planned.
 
 ## Verification
 
@@ -233,6 +233,9 @@ Return to full mode with `docker compose up -d --force-recreate`.
 - Atlas search preparing: source and graph remain available. Retry indexing once
   both search indexes become queryable.
 
-The V1 analyzer supports JS/TS; Python, Rust, Go and Java are planned adapters.
+The analyzers cover JS/TS, Python (including Django, FastAPI, Flask, and Starlette
+patterns), and Java (including Spring Boot annotations). Python and Java analysis
+uses structural imports and declarations; dynamic dispatch and build-time generated
+source may remain unresolved. Go and Rust remain planned.
 Graph dependencies are static and may miss dynamic behavior. Vector model/profile
 changes require reindexing. The large Monaco source-viewer bundle loads on demand.

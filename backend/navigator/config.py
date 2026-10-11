@@ -131,13 +131,13 @@ class Settings(BaseSettings):
 
     @property
     def analysis_profile(self) -> str:
-        return f"typescript-v1:chunk-v{self.chunk_profile_version}:{self.embedding_config}"
+        return f"multilang-v1:chunk-v{self.chunk_profile_version}:{self.embedding_config}"
 
     def for_analysis_profile(self, profile: str) -> "Settings":
         """Use an existing analysis's embedding space when the default changes."""
         try:
             prefix, model, dimensions, retrieval = profile.rsplit(":", 3)
-            if retrieval != "code-retrieval-v1" or prefix not in {"typescript-v1:chunk-v1", "typescript-v1:chunk-v2"}:
+            if retrieval != "code-retrieval-v1" or prefix not in {"typescript-v1:chunk-v1", "typescript-v1:chunk-v2", "multilang-v1:chunk-v1", "multilang-v1:chunk-v2"}:
                 raise ValueError
             dimension_count = int(dimensions)
         except (ValueError, AttributeError) as error:

@@ -4,15 +4,17 @@ import os
 import subprocess
 import tempfile
 import time
+import tomllib
 from pathlib import PurePosixPath
 
 from pydantic import ValidationError
 
 from .config import Settings
 from .contracts import DomainError, Edge, Node, Region
+from .structural import analyze_java, analyze_python
 
 
-def run_analyzer(files, analysis_id: str, settings: Settings, check_cancel=lambda: None):
+def _run_typescript_analyzer(files, analysis_id: str, settings: Settings, check_cancel=lambda: None):
     if not settings.analyzer.is_file():
         raise DomainError("ANALYZER_UNAVAILABLE", "TypeScript analyzer is missing. Build/install the analyzer before starting a job.", 503)
     request = {"protocolVersion": 1, "analysisId": analysis_id, "rootPath": "/snapshot", "files": [{"path": file["path"], "content": file["content"], "language": file["language"]} for file in files]}
@@ -86,6 +88,43 @@ def run_analyzer(files, analysis_id: str, settings: Settings, check_cancel=lambd
         except (ValueError, KeyError, ValidationError) as error:
             raise DomainError("INVALID_ANALYZER_OUTPUT", "Analyzer output failed schema or source-reference validation.", 500) from error
         return records
+
+
+def run_analyzer(files, analysis_id: str, settings: Settings, check_cancel=lambda: None):
+    """Combine independent language adapters in the shared graph contract."""
+    records = {"nodes": [], "edges": [], "regions": [], "unresolved_references": [], "diagnostics": []}
+    for language in ("javascript", "python", "java"):
+        check_cancel()
+        selected = ([file for file in files if file["language"] in {"javascript", "typescript"}]
+                    if language == "javascript" else [file for file in files if file["language"] == language])
+        if not selected:
+            continue
+        if language == "javascript":
+            result = _run_typescript_analyzer(files, analysis_id, settings, check_cancel)
+        else:
+            result = analyze_python(selected) if language == "python" else analyze_java(selected)
+        for key, values in result.items():
+            for record in values:
+                if language != "javascript":
+                    if key == "nodes":
+                        record = Node.model_validate(record).model_dump(exclude_none=True)
+                    elif key == "edges":
+                        record = Edge.model_validate(record).model_dump(exclude_none=True)
+                    elif key == "regions":
+                        record = Region.model_validate(record).model_dump(exclude_none=True)
+                    record["analysisId"] = analysis_id
+                    record.setdefault("id", hashlib.sha256(json.dumps(record, sort_keys=True).encode()).hexdigest()[:24])
+                records[key].append(record)
+    # Shared repository and directory nodes may be emitted by multiple adapters.
+    node_ids = set()
+    records["nodes"] = [node for node in records["nodes"] if not (node["id"] in node_ids or node_ids.add(node["id"]))]
+    edge_keys = set()
+    records["edges"] = [edge for edge in records["edges"] if not (
+        (key := (edge["source"], edge["target"], edge["kind"], edge.get("fileId"), edge.get("startLine"), edge.get("specifier"))) in edge_keys
+        or edge_keys.add(key))]
+    if any(edge["source"] not in node_ids or edge["target"] not in node_ids for edge in records["edges"]):
+        raise DomainError("INVALID_ANALYZER_OUTPUT", "Analyzer returned a relationship outside the source graph.", 500)
+    return records
 
 
 def build_chunks(files, regions, nodes, settings: Settings):
@@ -237,8 +276,45 @@ def overview(files, nodes):
                 pass
         if PurePosixPath(file["path"]).stem in {"main", "index", "server", "app"} and file["language"] in {"javascript", "typescript"}:
             entries.append(file["path"])
+        name = PurePosixPath(file["path"]).name.lower()
+        if file["language"] == "python":
+            if name in {"main.py", "app.py", "manage.py", "asgi.py", "wsgi.py"}:
+                entries.append(file["path"])
+            for framework in ("django", "fastapi", "flask", "starlette"):
+                if f"import {framework}" in file["content"] or f"from {framework}" in file["content"]:
+                    frameworks.add(framework)
+        if file["language"] == "java":
+            if "@SpringBootApplication" in file["content"] or "static void main(" in file["content"]:
+                entries.append(file["path"])
+            if "org.springframework" in file["content"]:
+                frameworks.add("Spring Boot" if "@SpringBootApplication" in file["content"] else "Spring")
+        if name in {"pyproject.toml", "pipfile"}:
+            try:
+                project = tomllib.loads(file["content"])
+                dependencies.update(str(item).split("[")[0].split("=")[0].split(">")[0].split("<")[0].lower()
+                                    for item in project.get("project", {}).get("dependencies", []))
+                dependencies.update(project.get("tool", {}).get("poetry", {}).get("dependencies", {}).keys())
+                dependencies.update(key.lower() for key in project.get("packages", {}))
+                dependencies.update(key.lower() for key in project.get("dev-packages", {}))
+            except (ValueError, TypeError, AttributeError):
+                pass
+        if name.startswith("requirements") and name.endswith(".txt"):
+            dependencies.update(line.split("[")[0].split("=")[0].split(">")[0].split("<")[0].strip().lower()
+                                for line in file["content"].splitlines() if line.strip() and not line.lstrip().startswith(("#", "-")))
+        if name in {"pom.xml", "build.gradle", "build.gradle.kts"}:
+            for marker, framework in (("spring-boot", "Spring Boot"), ("quarkus", "Quarkus"), ("micronaut", "Micronaut")):
+                if marker in file["content"].lower():
+                    frameworks.add(framework)
+            for marker, integration in (("spring-boot-starter-data-jpa", "Spring Data JPA"),
+                                        ("spring-boot-starter-security", "Spring Security"),
+                                        ("hibernate", "Hibernate"), ("postgresql", "PostgreSQL"),
+                                        ("mysql", "MySQL"), ("kafka", "Kafka"), ("redis", "Redis")):
+                if marker in file["content"].lower():
+                    integrations.add(integration)
     frameworks.update(name for name in ("react", "next", "express", "fastify", "vue", "svelte", "@nestjs/core") if name in dependencies)
+    frameworks.update(name for name in ("django", "fastapi", "flask", "starlette") if name in dependencies)
     integrations.update(name for name in ("mongodb", "mongoose", "prisma", "@prisma/client", "pg", "redis", "ioredis", "passport", "next-auth", "@auth/core", "stripe", "firebase", "@supabase/supabase-js") if name in dependencies)
+    integrations.update(name for name in ("sqlalchemy", "psycopg", "psycopg2", "pymongo", "celery", "redis", "boto3", "requests", "httpx") if name in dependencies)
     for node in nodes:
         if "api-handler" in node.get("tags", []) or node.get("symbolKind") in {"api-handler", "route"}:
             tags = node.get("tags", [])

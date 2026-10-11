@@ -31,7 +31,7 @@ def test_legacy_chunk_profile_keeps_existing_chunk_boundaries():
     chunks = build_chunks([file], regions, [], settings)
 
     assert len(chunks) == 2
-    assert settings.analysis_profile.startswith("typescript-v1:chunk-v1:")
+    assert settings.analysis_profile.startswith("multilang-v1:chunk-v1:")
 
 
 def test_grouped_chunks_never_cross_file_boundaries_or_size_limit():

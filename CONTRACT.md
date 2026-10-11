@@ -6,6 +6,10 @@ All public JSON uses camelCase keys. API prefix `/api/v1`. Node IDs are unique w
 
 `node analyzers/typescript/src/cli.mjs` accepts one JSON object on stdin: `{protocolVersion:1, analysisId:string, rootPath:string, files:[{path:string, content:string, language?:string}]}`. It must only read the supplied file map via a virtual compiler host (not execute repository code or load configuration from outside the supplied files).
 
+The backend merges this output with Python and Java source-only adapters under the
+same node, edge, and region contract. Python and Java do not require Node when a
+repository has no JavaScript or TypeScript source.
+
 It writes JSON Lines to stdout, one record per node, edge, unresolved reference, region, or diagnostic; errors/logs go to stderr. Final record `{type:'complete', protocolVersion:1, counts:{nodes,edges,regions}}` is required. Each record has a `type` plus the fields below (no data wrapper).
 
 Node `{type:'node', id, kind:'repository'|'module'|'file'|'symbol'|'external', name, path?, fileId?, parentId?, language?, symbolKind?, startLine?, endLine?, startByte?, endByte?, signature?, exported?:boolean, tags?:string[]}`. Repository ID `repo`; module IDs `module:<directory>` (root module `module:.`); file IDs `file:<path>`; symbol IDs `symbol:<path>:<startByte>:<name>`; external IDs `external:<package>`.

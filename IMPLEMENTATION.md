@@ -2,10 +2,9 @@
 
 ## Product boundary
 
-Public GitHub repositories, JavaScript/TypeScript analysis, interactive static
+Public GitHub repositories, JavaScript/TypeScript/Python/Java analysis, interactive static
 dependencies, source browsing, graph-aware Atlas retrieval, and Gemini answers
-with validated source references. Python, Rust, Go and Java are future language
-adapters. Billing, users, teams, OAuth and private repositories are outside V1.
+with validated source references. Rust and Go remain future language adapters. Billing, users, teams, OAuth and private repositories are outside V1.
 
 ## Architecture decisions
 
@@ -197,12 +196,12 @@ quality across arbitrary repositories or languages.
 
 1. **Foundation:** pinned runtimes/dependencies, Docker, safe configuration checks,
    contracts and immutable storage model.
-2. **Static exploration:** bounded ingestion, JS/TS adapter, graph/source APIs and
+2. **Static exploration:** bounded ingestion, JS/TS/Python/Java adapters, graph/source APIs and
    module/file/symbol explorer.
 3. **Grounded AI:** semantic chunks, batched embeddings, Atlas hybrid retrieval,
    graph expansion, validated Gemini output and architecture summary.
 4. **Reliability:** checkpoints, leases, cancellation/retry, resource/security
    tests, live integration and browser validation.
-5. **Future work:** language adapters with explicit capabilities, larger-repo
+5. **Future work:** Go/Rust adapters with explicit capabilities, larger-repo
    performance, impact/flow evaluation, commit diffs, then separately authorized
    private-repository OAuth and hosted access controls.

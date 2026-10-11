@@ -5,6 +5,9 @@ import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
 import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution';
 import 'monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution';
 import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution';
+import 'monaco-editor/esm/vs/basic-languages/python/python.contribution';
+import 'monaco-editor/esm/vs/basic-languages/java/java.contribution';
+import 'monaco-editor/esm/vs/basic-languages/xml/xml.contribution';
 import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowDownLeft, ArrowUpRight, Braces, FileCode2, Loader2, Sparkles, X } from 'lucide-react';

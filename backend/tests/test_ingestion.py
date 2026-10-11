@@ -24,7 +24,7 @@ def test_archive_traversal_rejected(path):
         safe_archive_path(path)
 
 
-@pytest.mark.parametrize("path", [".git/config", "node_modules/pkg/index.js", "dist/app.js", ".env.example", "secrets/a.ts", "src/key.pem", "src/bundle.min.js", "src/a.ts.map", ".aws/credentials", "logo.png", "src/a.py"])
+@pytest.mark.parametrize("path", [".git/config", "node_modules/pkg/index.js", "dist/app.js", ".env.example", "secrets/a.ts", "src/key.pem", "src/bundle.min.js", "src/a.ts.map", ".aws/credentials", "logo.png"])
 def test_ignored_paths(path):
     assert not eligible(path)
 
@@ -36,6 +36,8 @@ def test_secret_redaction_preserves_source_lines():
     assert source.count("\n") == redacted.count("\n")
     assert len(source) == len(redacted)
     assert make_file("src/a.ts", b"\x00binary", "a") is None
+    xml, changed = sanitize("<password>very-private-password</password>")
+    assert changed and "very-private-password" not in xml
 
 
 def archive(entries):

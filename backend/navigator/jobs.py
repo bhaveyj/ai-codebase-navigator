@@ -135,12 +135,12 @@ def run_job(job_id, config):
         if "fetching" not in checkpoints:
             progress("fetching", message="Fetching the pinned source snapshot")
             files, warnings = demo_files(config.demo_dir, analysis_id, config) if analysis.get("demo") else fetch_files(repo, analysis["commitSha"], analysis_id, config, check_cancel)
-            if not any(file["language"] in {"javascript", "typescript"} for file in files):
-                raise DomainError("NO_SUPPORTED_SOURCE", "No eligible JavaScript or TypeScript source files were found. Additional languages are planned.")
+            if not any(file["language"] in {"javascript", "typescript", "python", "java"} for file in files):
+                raise DomainError("NO_SUPPORTED_SOURCE", "No eligible JavaScript, TypeScript, Python, or Java source files were found.")
             check_cancel()
             store.put_many("files", files)
             warnings += [f"Secret-like content redacted: {file['path']}" for file in files if file.get("redacted")]
-            store.update("analyses", {"id": analysis_id}, {"warnings": warnings, "languages": sorted({file["language"] for file in files if file["language"] in {"javascript", "typescript"}})})
+            store.update("analyses", {"id": analysis_id}, {"warnings": warnings, "languages": sorted({file["language"] for file in files if file["language"] in {"javascript", "typescript", "python", "java"}})})
             checkpoint("fetching")
         files = store.find("files", {"analysisId": analysis_id})
         if "graph" not in checkpoints:

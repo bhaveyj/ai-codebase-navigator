@@ -139,7 +139,11 @@ def create_app(config: Settings | None = None):
 
     @app.get("/api/v1/capabilities", response_model=Capabilities, response_model_exclude_none=True)
     async def capabilities():
-        return {"languages": [{"id": name, "label": label, "status": "supported" if name in {"javascript", "typescript"} else "planned", "capabilities": ["declarations", "imports", "exports", "references", "direct-calls", "semantic-chunks"] if name in {"javascript", "typescript"} else []} for name, label in (("javascript", "JavaScript"), ("typescript", "TypeScript"), ("python", "Python"), ("go", "Go"), ("rust", "Rust"), ("java", "Java"))], "services": await services(), "mode": config.mode}
+        language_caps = {"javascript": ["declarations", "imports", "exports", "references", "direct-calls", "semantic-chunks"],
+                         "typescript": ["declarations", "imports", "exports", "references", "direct-calls", "semantic-chunks"],
+                         "python": ["declarations", "imports", "local-calls", "framework-routes", "semantic-chunks"],
+                         "java": ["declarations", "imports", "spring-routes", "semantic-chunks"]}
+        return {"languages": [{"id": name, "label": label, "status": "supported" if name in language_caps else "planned", "capabilities": language_caps.get(name, [])} for name, label in (("javascript", "JavaScript"), ("typescript", "TypeScript"), ("python", "Python"), ("go", "Go"), ("rust", "Rust"), ("java", "Java"))], "services": await services(), "mode": config.mode}
 
     @app.get("/api/v1/repositories", response_model=RepositoryList, response_model_exclude_none=True)
     async def repositories():

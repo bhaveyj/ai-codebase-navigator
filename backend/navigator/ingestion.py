@@ -12,14 +12,15 @@ import httpx
 from .config import Settings
 from .contracts import DomainError
 
-SOURCE_SUFFIXES = {".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"}
+SOURCE_SUFFIXES = {".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts", ".py", ".pyi", ".java"}
 IGNORE_DIRS = {".git", "node_modules", "vendor", "dist", "build", "out", "coverage", ".next", ".nuxt", ".cache", "__pycache__", ".venv", "venv", "target", ".idea", ".vscode", ".aws", ".ssh", "secrets"}
-CONFIG_NAMES = {"package.json", "tsconfig.json", "jsconfig.json", "pnpm-workspace.yaml"}
+CONFIG_NAMES = {"package.json", "tsconfig.json", "jsconfig.json", "pnpm-workspace.yaml", "pyproject.toml", "requirements.txt", "pipfile", "pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"}
 SECRET_NAMES = {".npmrc", ".pypirc", "credentials", "credentials.json", "id_rsa", "id_ed25519", "service-account.json"}
 SECRET_PATTERNS = [
     re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
     re.compile(r"(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|AIza[A-Za-z0-9_-]{30,}|AKIA[A-Z0-9]{16}|sk-[A-Za-z0-9_-]{24,})"),
     re.compile(r"(?i)(?:(?:api[_-]?key|secret|password|access[_-]?token)\s*[:=]\s*[\"'])([^\"'\r\n]{12,})(?:[\"'])"),
+    re.compile(r"(?i)<(?:api[_-]?key|secret|password|token)>\s*([^<\r\n]{12,})\s*</(?:api[_-]?key|secret|password|token)>"),
 ]
 
 
@@ -84,7 +85,10 @@ def eligible(path: str) -> bool:
         return False
     if lower.startswith(".env") or lower in SECRET_NAMES or lower.endswith((".pem", ".key", ".p12", ".pfx", ".map", ".min.js")):
         return False
-    return pure.suffix.lower() in SOURCE_SUFFIXES or lower in CONFIG_NAMES or lower.startswith(("tsconfig.", "jsconfig.")) and lower.endswith(".json") or lower in {"readme.md", "architecture.md"}
+    return (pure.suffix.lower() in SOURCE_SUFFIXES or lower in CONFIG_NAMES
+            or lower.startswith(("tsconfig.", "jsconfig.")) and lower.endswith(".json")
+            or lower.startswith("requirements-") and lower.endswith(".txt")
+            or lower in {"readme.md", "architecture.md"})
 
 
 def sanitize(content: str) -> tuple[str, bool]:
@@ -112,8 +116,18 @@ def make_file(path: str, raw: bytes, analysis_id: str):
         return None
     content, redacted = sanitize(content)
     suffix = PurePosixPath(path).suffix.lower()
-    language = "typescript" if suffix in {".ts", ".tsx", ".mts", ".cts"} else "javascript" if suffix in SOURCE_SUFFIXES else "json" if suffix == ".json" else "markdown" if suffix == ".md" else "yaml"
+    language = ("typescript" if suffix in {".ts", ".tsx", ".mts", ".cts"} else
+                "python" if suffix in {".py", ".pyi"} else "java" if suffix == ".java" else
+                "javascript" if suffix in SOURCE_SUFFIXES else "json" if suffix == ".json" else
+                "markdown" if suffix == ".md" else "xml" if suffix == ".xml" else
+                "toml" if suffix == ".toml" or pure_name(path) == "pipfile" else
+                "yaml" if suffix in {".yaml", ".yml"} else "text" if suffix == ".txt" else
+                "kotlin" if suffix == ".kts" else "groovy")
     return {"id": f"file:{path}", "analysisId": analysis_id, "path": path, "language": language, "content": content, "lineCount": content.count("\n") + 1, "redacted": redacted, "contentHash": hashlib.sha256(content.encode()).hexdigest()}
+
+
+def pure_name(path: str) -> str:
+    return PurePosixPath(path).name.lower()
 
 
 def collect_archive(archive, analysis_id: str, settings: Settings, check_cancel=lambda: None):
