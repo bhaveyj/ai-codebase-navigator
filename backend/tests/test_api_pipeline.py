@@ -57,6 +57,31 @@ def test_citations_resolve_to_same_analysis(client):
     assert foreign.status_code == 404
 
 
+def test_chat_stream_sends_graph_blocks_and_done(client):
+    response = client.post(f"/api/v1/analyses/{client.analysis_id}/chat/stream", json={"message": "What depends on this file?", "selectedNodeId": "file:src/server/middleware/rate-limit.ts", "action": "dependents"})
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert "event: block\n" in response.text
+    assert "event: done\n" in response.text
+    assert response.text.index("event: block") < response.text.index("event: done")
+
+
+def test_chat_stream_sends_ai_blocks_before_final_answer_without_provider_call(client, monkeypatch):
+    answer = {"mode": "rag", "blocks": [{"text": "Supported.", "kind": "fact", "citationIds": ["S1"]}],
+              "citations": [{"id": "S1", "analysisId": client.analysis_id, "fileId": "file:src/app.ts",
+                             "path": "src/app.ts", "commitSha": "abc", "startLine": 1, "endLine": 1}],
+              "relatedNodeIds": [], "warnings": []}
+    def fake_stream(*_args):
+        yield {"type": "status", "message": "Writing answer"}
+        yield {"type": "block", "block": answer["blocks"][0], "citations": answer["citations"]}
+        yield {"type": "done", "answer": answer}
+    monkeypatch.setattr(main, "stream_answer_question", fake_stream)
+    response = client.post(f"/api/v1/analyses/{client.analysis_id}/chat/stream", json={"message": "Explain this project"})
+    assert response.status_code == 200
+    assert response.text.index("event: status") < response.text.index("event: block") < response.text.index("event: done")
+    assert '"text":"Supported."' in response.text
+
+
 def test_file_boundary_and_internal_job_fields(client):
     client.app.state.store.put("files", {"id": "file:foreign.ts", "analysisId": "foreign", "path": "foreign.ts", "content": "secret", "lineCount": 1, "language": "typescript"})
     assert client.get(f"/api/v1/analyses/{client.analysis_id}/files/file:foreign.ts").status_code == 404

@@ -146,3 +146,43 @@ def generate_groq(system: str, payload: dict, settings) -> dict:
         return answer
     except (AttributeError, KeyError, IndexError, TypeError, json.JSONDecodeError) as error:
         raise ValueError("Groq did not return a valid JSON answer") from error
+
+
+def stream_groq(system: str, payload: dict, settings):
+    """Yield content deltas from Groq's chat-completion event stream."""
+    if not settings.groq_api_key:
+        raise DomainError("GROQ_UNAVAILABLE", "Configure GROQ_API_KEY to enable Groq repository answers.", 503, retryable=False)
+    request = {
+        "model": settings.groq_model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))},
+        ],
+        "temperature": 0.1,
+        "max_completion_tokens": settings.groq_max_completion_tokens,
+        # Groq's structured-output mode does not support streaming; JSON mode
+        # streams tokens while the caller validates each completed block.
+        "response_format": {"type": "json_object"},
+        "stream": True,
+    }
+    try:
+        with httpx.stream("POST", GROQ_CHAT_URL, headers={"Authorization": f"Bearer {settings.groq_api_key}"}, json=request, timeout=settings.groq_timeout_seconds) as response:
+            if response.status_code != 200:
+                raise _status_error(response)
+            for line in response.iter_lines():
+                if not line.startswith("data: "):
+                    continue
+                data = line[6:]
+                if data == "[DONE]":
+                    break
+                try:
+                    choice = json.loads(data)["choices"][0]
+                    if choice.get("finish_reason") == "length":
+                        raise DomainError("GROQ_ANSWER_TRUNCATED", "Groq stopped before finishing the answer. Ask a narrower question or increase GROQ_MAX_COMPLETION_TOKENS within your rate limit.", 502, retryable=False)
+                    content = choice.get("delta", {}).get("content")
+                except (ValueError, KeyError, IndexError, TypeError) as error:
+                    raise DomainError("GROQ_UNAVAILABLE", "Groq returned an invalid answer stream. Try again.", 502) from error
+                if content:
+                    yield content
+    except httpx.RequestError as error:
+        raise DomainError("GROQ_UNAVAILABLE", "Groq could not generate an answer. Check service availability and connectivity.", 503) from error

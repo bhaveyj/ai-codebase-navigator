@@ -41,6 +41,26 @@ def test_generate_groq_sends_grounding_prompt_and_returns_json(monkeypatch):
     assert json.loads(kwargs["json"]["messages"][1]["content"]) == {"sources": [{"citationId": "S1"}]}
 
 
+def test_stream_groq_uses_json_mode_and_yields_content_deltas(monkeypatch):
+    calls = []
+    class Stream:
+        status_code = 200
+        def __enter__(self): return self
+        def __exit__(self, *_args): pass
+        def iter_lines(self):
+            yield 'data: {"choices":[{"delta":{"content":"{\\"blocks\\":["}}]}'
+            yield 'data: {"choices":[{"delta":{"content":"}]"}}]}'
+            yield 'data: [DONE]'
+    def fake_stream(*args, **kwargs):
+        calls.append((args, kwargs))
+        return Stream()
+    monkeypatch.setattr(groq.httpx, "stream", fake_stream)
+    chunks = list(groq.stream_groq("Cite evidence", {"sources": [{"citationId": "S1"}]}, settings()))
+    assert chunks == ['{"blocks":[', '}]']
+    assert calls[0][1]["json"]["stream"] is True
+    assert calls[0][1]["json"]["response_format"] == {"type": "json_object"}
+
+
 def test_generate_groq_requires_api_key_before_request(monkeypatch):
     post = Mock()
     monkeypatch.setattr(groq.httpx, "post", post)

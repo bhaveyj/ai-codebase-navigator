@@ -21,7 +21,7 @@ from ..contracts import ChatRequest, DomainError, JobRetryRequest, SubmitRequest
 from ..graph import project_graph
 from ..ingestion import demo_files, github_metadata
 from ..jobs import create_job, delete_repository, launch, now, recover_jobs
-from ..rag import answer_question, dependency_answer
+from ..rag import answer_question, dependency_answer, stream_answer_question
 from ..quota import QuotaGate
 from ..storage import AsyncStore, create_indexes, make_store
 from ..responses import Analysis, Capabilities, ChatResponse, GraphData, Job, RepositoryList, SearchResponse, SourceFile, Submission, TreeResponse
@@ -83,7 +83,7 @@ def create_app(config: Settings | None = None):
             current = time.monotonic()
             while attempts and attempts[0] < current - 60:
                 attempts.popleft()
-            limit = 30 if request.url.path.endswith("/chat") else 12
+            limit = 30 if request.url.path.endswith(("/chat", "/chat/stream")) else 12
             if len(attempts) >= limit:
                 return error_response("RATE_LIMITED", "Too many requests. Please retry in a minute.", 429)
             attempts.append(current)
@@ -302,6 +302,52 @@ def create_app(config: Settings | None = None):
         async with app.state.chat_slots:
             analysis_config = config.for_analysis_profile(analysis["profile"])
             return await asyncio.to_thread(answer_question, app.state.store, analysis, body, analysis_config, app.state.quota)
+
+    @app.post("/api/v1/analyses/{analysis_id}/chat/stream")
+    async def chat_stream(analysis_id: str, body: ChatRequest, request: Request):
+        analysis, nodes, edges = await graph_data(analysis_id)
+        if not body.message.strip() and not body.action:
+            raise DomainError("QUESTION_REQUIRED", "Enter a question or choose an exploration action.")
+        graph_action = body.action in {"dependencies", "dependents"}
+        if graph_action:
+            files = await app.state.async_store.find("files", {"analysisId": analysis_id}, projection={"content": 0})
+            answer = dependency_answer(analysis, nodes, edges, files, body.selectedNodeId, body.action)
+        elif app.state.chat_slots.locked():
+            raise DomainError("CHAT_BUSY", "Two answers are already being generated. Retry shortly.", 429, retry_after_seconds=5)
+
+        def frame(event):
+            return f"event: {event['type']}\ndata: {json.dumps(event, ensure_ascii=False, separators=(',', ':'))}\n\n"
+
+        def next_event(iterator):
+            try:
+                return next(iterator)
+            except StopIteration:
+                return None
+
+        async def events():
+            if graph_action:
+                for block in answer["blocks"]:
+                    yield frame({"type": "block", "block": block, "citations": [citation for citation in answer["citations"] if citation["id"] in block["citationIds"]]})
+                yield frame({"type": "done", "answer": answer})
+                return
+            async with app.state.chat_slots:
+                analysis_config = config.for_analysis_profile(analysis["profile"])
+                iterator = iter(stream_answer_question(app.state.store, analysis, body, analysis_config, app.state.quota))
+                try:
+                    while not await request.is_disconnected():
+                        event = await asyncio.to_thread(next_event, iterator)
+                        if event is None:
+                            break
+                        yield frame(event)
+                except DomainError as error:
+                    yield frame({"type": "error", "message": error.message, "code": error.code, "retryAfter": error.retry_after_seconds})
+                except Exception as error:
+                    logger.error("Chat stream failed: %s", type(error).__name__)
+                    yield frame({"type": "error", "message": "A required service is unavailable. Check server configuration and retry.", "code": "SERVICE_UNAVAILABLE"})
+                finally:
+                    await asyncio.to_thread(iterator.close)
+
+        return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     @app.delete("/api/v1/repositories/{repository_id}", status_code=204)
     async def remove_repository(repository_id: str):

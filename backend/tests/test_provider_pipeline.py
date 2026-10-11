@@ -113,6 +113,60 @@ def test_groq_answer_receives_schema_and_retains_citation_validation(monkeypatch
     assert len(invalid_calls) == 1
 
 
+def test_stream_answer_emits_validated_blocks_before_completion(monkeypatch, tmp_path):
+    settings = cloudflare_settings()
+    store = LocalStore(tmp_path)
+    file = make_file("src/app.py", b"ANSWER = 42\n", "analysis")
+    store.put("files", file)
+    evidence = {"id": "chunk:app", "analysisId": "analysis", "fileId": file["id"], "path": file["path"],
+                "startLine": 1, "endLine": 1, "text": file["content"]}
+    monkeypatch.setattr(rag, "retrieve", lambda *_args: ([evidence], [], []))
+    text = json.dumps({"blocks": [
+        {"text": 'The value is {42}.', "kind": "fact", "citationIds": ["S1"], "edgeIds": []},
+        {"text": "Other behavior is unknown.", "kind": "unknown", "citationIds": [], "edgeIds": []},
+    ]})
+    monkeypatch.setattr(rag, "stream_groq", lambda *_args: iter([text[:27], text[27:88], text[88:120], text[120:]]))
+    events = list(rag.stream_answer_question(store, {"id": "analysis", "commitSha": "abc"}, ChatRequest(message="What is exported?"), settings))
+    types = [event["type"] for event in events]
+    assert types[:2] == ["status", "status"]
+    assert "draft" in types and types.index("draft") < types.index("block")
+    assert "".join(event["delta"] for event in events[2:types.index("block")] if event["type"] == "draft") == "The value is {42}."
+    blocks = [event for event in events if event["type"] == "block"]
+    assert len(blocks) == 2 and types[-1] == "done"
+    assert blocks[0]["citations"][0]["path"] == "src/app.py"
+    assert events[-1]["answer"]["blocks"] == [block["block"] for block in blocks]
+
+
+def test_stream_answer_rejects_unsupported_citation(monkeypatch, tmp_path):
+    settings = cloudflare_settings()
+    store = LocalStore(tmp_path)
+    file = make_file("src/app.py", b"ANSWER = 42\n", "analysis")
+    store.put("files", file)
+    evidence = {"id": "chunk:app", "analysisId": "analysis", "fileId": file["id"], "path": file["path"],
+                "startLine": 1, "endLine": 1, "text": file["content"]}
+    monkeypatch.setattr(rag, "retrieve", lambda *_args: ([evidence], [], []))
+    monkeypatch.setattr(rag, "stream_groq", lambda *_args: iter(['{"blocks":[{"text":"Invented","kind":"fact","citationIds":["S99"],"edgeIds":[]}]}']))
+    with pytest.raises(DomainError, match="citation validation"):
+        list(rag.stream_answer_question(store, {"id": "analysis", "commitSha": "abc"}, ChatRequest(message="What is exported?"), settings))
+
+
+def test_stream_answer_preserves_only_validated_blocks_if_later_block_fails(monkeypatch, tmp_path):
+    settings = cloudflare_settings()
+    store = LocalStore(tmp_path)
+    file = make_file("src/app.py", b"ANSWER = 42\n", "analysis")
+    store.put("files", file)
+    evidence = {"id": "chunk:app", "analysisId": "analysis", "fileId": file["id"], "path": file["path"],
+                "startLine": 1, "endLine": 1, "text": file["content"]}
+    monkeypatch.setattr(rag, "retrieve", lambda *_args: ([evidence], [], []))
+    first = '{"blocks":[{"text":"The value is exported.","kind":"fact","citationIds":["S1"],"edgeIds":[]}'
+    second = ',{"text":"Unsupported claim.","kind":"fact","citationIds":["S99"],"edgeIds":[]}]}'
+    monkeypatch.setattr(rag, "stream_groq", lambda *_args: iter([first, second]))
+    events = list(rag.stream_answer_question(store, {"id": "analysis", "commitSha": "abc"}, ChatRequest(message="What is exported?"), settings))
+    assert [event["type"] for event in events][-2:] == ["block", "done"]
+    assert len(events[-1]["answer"]["blocks"]) == 1
+    assert "incomplete" in events[-1]["answer"]["warnings"][0]
+
+
 def test_groq_bounds_combined_source_graph_and_history_payload():
     sources = [{"citationId": f"S{index}", "path": f"src/module-{index}.ts", "lines": [1, 25],
                 "code": "export const value = 42;\n" * 27} for index in range(1, 17)]
