@@ -15,6 +15,9 @@ export interface Analysis {
   warnings: Array<string>;
   overview?: Overview;
   error?: string;
+  demo?: boolean;
+  preview?: boolean;
+  coverage?: Coverage;
 }
 export interface AnswerBlock {
   text: string;
@@ -81,6 +84,10 @@ export interface Counts {
   symbols: number;
   edges: number;
   chunks: number;
+}
+export interface Coverage {
+  indexedChunks: number;
+  totalChunks: number;
 }
 export interface GraphData {
   nodes: Array<CodeNode>;

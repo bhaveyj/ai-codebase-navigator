@@ -26,7 +26,7 @@ def main():
     with httpx.Client(base_url=args.base + '/api/v1', timeout=300) as client:
         health = client.get('/health/ready')
         health.raise_for_status()
-        response = client.post('/demo' if args.demo else '/repositories', json={} if args.demo else {'url': args.url})
+        response = client.get('/demo') if args.demo else client.post('/repositories', json={'url': args.url})
         response.raise_for_status()
         data = response.json()
         analysis_id = data['analysis']['id']
@@ -70,7 +70,7 @@ def main():
             assert deps.json()['mode'] == 'graph'
         if args.rag:
             assert analysis['ragReady'], 'Atlas retrieval must be ready for --rag'
-            chat = client.post(f'/analyses/{analysis_id}/chat', json={'message': 'Where is rate limiting implemented?' if args.demo else 'Explain the main entry point with source citations.'})
+            chat = client.post(f'/analyses/{analysis_id}/chat', json={'message': 'How is this project structured?' if args.demo else 'Explain the main entry point with source citations.'})
             if chat.status_code >= 400:
                 raise SystemExit(f"AI request stopped: {chat.json().get('error', {}).get('message', 'service unavailable')}")
             chat.raise_for_status()

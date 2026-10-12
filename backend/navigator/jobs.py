@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from celery import Celery
 
-from .analysis import build_chunks, overview, run_analyzer
+from .analysis import build_chunks, overview, run_analyzer, select_preview_chunks
 from .config import get_settings
 from .contracts import ChatRequest, DomainError
 from .ingestion import demo_files, fetch_files
@@ -29,15 +29,16 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def create_job(store, metadata, config, demo=False):
+def create_job(store, metadata, config, demo=False, preview=False):
     repository_id = "demo-beacon-store" if demo else f"github-{metadata['githubId']}"
-    analysis_id = hashlib.sha256(f"{repository_id}:{metadata['commitSha']}:{config.analysis_profile}".encode()).hexdigest()[:24]
+    profile = config.preview_analysis_profile if preview else config.analysis_profile
+    analysis_id = hashlib.sha256(f"{repository_id}:{metadata['commitSha']}:{profile}".encode()).hexdigest()[:24]
     existing = store.one("analyses", {"id": analysis_id})
     repository = store.ensure("repositories", {"id": repository_id, **{key: metadata[key] for key in ("owner", "name", "url", "defaultBranch")}, **({"githubId": metadata["githubId"]} if not demo else {}), "createdAt": now()})
     if existing:
         return {"repository": repository, "analysis": existing, "job": store.one("jobs", {"id": existing["jobId"]})}, False
     job_id = f"job-{analysis_id}"
-    analysis = store.ensure("analyses", {"id": analysis_id, "repositoryId": repository_id, "repositoryName": f"{metadata['owner']}/{metadata['name']}", "commitSha": metadata["commitSha"], "profile": config.analysis_profile, "status": "queued", "phase": "queued", "graphReady": False, "ragReady": False, "jobId": job_id, "counts": {"files": 0, "symbols": 0, "edges": 0, "chunks": 0}, "languages": [], "createdAt": now(), "warnings": [], "demo": demo})
+    analysis = store.ensure("analyses", {"id": analysis_id, "repositoryId": repository_id, "repositoryName": f"{metadata['owner']}/{metadata['name']}", "commitSha": metadata["commitSha"], "profile": profile, "status": "queued", "phase": "queued", "graphReady": False, "ragReady": False, "jobId": job_id, "counts": {"files": 0, "symbols": 0, "edges": 0, "chunks": 0}, "languages": [], "createdAt": now(), "warnings": [], "demo": demo, "preview": preview})
     job = store.ensure("jobs", {"id": job_id, "analysisId": analysis_id, "status": "queued", "phase": "queued", "completed": 0, "total": 0, "message": "Waiting for analysis worker", "checkpoints": [], "attempts": 0, "cancelRequested": False, "createdAt": now(), "heartbeatAt": now()})
     return {"repository": repository, "analysis": analysis, "job": job}, True
 
@@ -161,6 +162,10 @@ def run_job(job_id, config):
             regions = store.find("regions", {"analysisId": analysis_id})
             nodes = store.find("nodes", {"analysisId": analysis_id})
             chunks = build_chunks(files, regions, nodes, config)
+            total_chunks = len(chunks)
+            if analysis.get("preview"):
+                chunks = select_preview_chunks(chunks, config.preview_embedding_bytes)
+                store.update("analyses", {"id": analysis_id}, {"coverage": {"indexedChunks": len(chunks), "totalChunks": total_chunks}})
             for chunk in chunks:
                 chunk["repositoryId"] = analysis["repositoryId"]
             store.put_many("chunks", chunks)

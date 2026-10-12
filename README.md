@@ -17,6 +17,41 @@ credentials into chat or commit `.env`.
 | `GROQ_API_KEY` | For Groq answers | Groq API key |
 | `GEMINI_API_KEY` | For Gemini embeddings or answers | Google AI Studio Gemini API key |
 | `GITHUB_TOKEN` | Optional | Higher GitHub API limits for public repository fetching |
+| `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | For production sign-in | GitHub OAuth App credentials, kept on the API only |
+
+### GitHub sign-in and free preview
+
+Create a **GitHub OAuth App** under GitHub Settings → Developer settings → OAuth
+apps. For the local Compose deployment, set its homepage to
+`http://localhost:8080` and its callback URL to
+`http://localhost:8080/api/v1/auth/github/callback`. Copy its client ID and
+client secret into the corresponding `.env` values. Set
+`GITHUB_OAUTH_REDIRECT_URI` to the exact callback URL. The login flow requests
+no repository scopes; it reads only the authenticated GitHub user's public ID.
+Production deployments must use HTTPS and set the redirect URI, allowed origins,
+and allowed hosts to their public domain. Never put the client secret in a Vite
+variable or commit it.
+
+Signed-out visitors can explore the prebuilt Beacon Store example and its three
+prepared questions. A browser-bound guest session can preview one public GitHub
+repository and ask five live AI questions by default. The preview indexes at
+most half of eligible chunks, capped by `PREVIEW_EMBEDDING_BYTES`; the complete
+static map and source remain available. `FREE_QUESTIONS` changes the guest
+allowance. Graph dependency questions and prepared example answers do not
+consume it. If a preview fails before the static map is ready, removing it
+recovers the guest repository slot. A completed preview can be restored without
+granting a second slot.
+
+GitHub sign-in unlocks full indexing for multiple public repositories and
+removes the app-level AI question cap. Provider quotas and the configured
+per-IP submission gate still apply. A guest preview is added to the signed-in
+workspace on login; use **Analyze full repository** to index its remaining
+chunks at the same pinned commit. Existing signed-in previews can be upgraded
+the same way. Analyses and conversation history are private to the browser's
+guest session or signed-in account. Old analyses created before this access
+model have no owner grant and are hidden; they must be intentionally reassigned
+or left as cached public-source data.
+Local graph mode still skips sign-in for development.
 
 ### MongoDB Atlas
 
@@ -78,12 +113,18 @@ docker compose build
 docker compose up -d redis
 docker compose run --rm api python -m navigator.doctor --services
 docker compose run --rm api python -m navigator.doctor --initialize
-docker compose up -d
+docker compose up -d --build
+docker compose exec -T api python -m navigator.prewarm_demo
 ```
 
 Open **http://localhost:8080**. API docs are at
 **http://localhost:8000/docs**. Redis is private to the Compose network. The web
 and API ports bind to loopback by default.
+The prewarm command waits for the example repository's embeddings and saves three
+source-grounded answers. Run it once after provider credentials are configured,
+and again if the embedding model or chunk profile changes. Rebuild the API,
+worker, and scheduler together after backend changes; otherwise queued jobs may
+fail on an analysis profile that the older worker does not recognize.
 
 ```sh
 docker compose ps
@@ -180,11 +221,12 @@ Absent-feature cases require separate grounded-answer review.
 
 ## End-to-end checks
 
-With the stack running, exercise the real sample and a public repository:
+With the stack running, exercise the real sample. The custom-repository smoke
+command requires a signed-in session in production, so use the web UI for that
+check:
 
 ```sh
 python scripts/smoke.py --demo --rag
-python scripts/smoke.py --url https://github.com/sindresorhus/p-limit --rag
 ```
 
 To run the same graph explorer without Atlas or AI providers:

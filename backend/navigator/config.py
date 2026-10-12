@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     groq_answer_max_evidence_chars: int = Field(10000, ge=4000, le=24000, alias="GROQ_ANSWER_MAX_EVIDENCE_CHARS")
     groq_max_completion_tokens: int = Field(3072, ge=512, le=8192, alias="GROQ_MAX_COMPLETION_TOKENS")
     github_token: str = Field("", alias="GITHUB_TOKEN")
+    github_oauth_client_id: str = Field("", alias="GITHUB_OAUTH_CLIENT_ID")
+    github_oauth_client_secret: str = Field("", alias="GITHUB_OAUTH_CLIENT_SECRET")
+    github_oauth_redirect_uri: str = Field("http://localhost:8080/api/v1/auth/github/callback", alias="GITHUB_OAUTH_REDIRECT_URI")
+    free_questions: int = Field(5, ge=1, le=100, alias="FREE_QUESTIONS")
+    preview_embedding_bytes: int = Field(500000, ge=10000, alias="PREVIEW_EMBEDDING_BYTES")
     allowed_origins: str = Field("http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000,http://127.0.0.1:8000,http://localhost:8080,http://127.0.0.1:8080", alias="NAVIGATOR_ALLOWED_ORIGINS")
     allowed_hosts: str = Field("localhost,127.0.0.1,testserver,api", alias="NAVIGATOR_ALLOWED_HOSTS")
     max_files: int = 2000
@@ -133,11 +138,16 @@ class Settings(BaseSettings):
     def analysis_profile(self) -> str:
         return f"multilang-v1:chunk-v{self.chunk_profile_version}:{self.embedding_config}"
 
+    @property
+    def preview_analysis_profile(self) -> str:
+        return f"multilang-v1:chunk-v{self.chunk_profile_version}:preview-v1:{self.embedding_config}"
+
     def for_analysis_profile(self, profile: str) -> "Settings":
         """Use an existing analysis's embedding space when the default changes."""
         try:
             prefix, model, dimensions, retrieval = profile.rsplit(":", 3)
-            if retrieval != "code-retrieval-v1" or prefix not in {"typescript-v1:chunk-v1", "typescript-v1:chunk-v2", "multilang-v1:chunk-v1", "multilang-v1:chunk-v2"}:
+            base_prefix = prefix.removesuffix(":preview-v1")
+            if retrieval != "code-retrieval-v1" or base_prefix not in {"typescript-v1:chunk-v1", "typescript-v1:chunk-v2", "multilang-v1:chunk-v1", "multilang-v1:chunk-v2"}:
                 raise ValueError
             dimension_count = int(dimensions)
         except (ValueError, AttributeError) as error:
@@ -146,9 +156,9 @@ class Settings(BaseSettings):
             if dimension_count != 1024:
                 raise ValueError("Unsupported Cloudflare embedding dimensions")
             return self.model_copy(update={"embedding_provider": "cloudflare", "cloudflare_embedding_model": model,
-                                           "chunk_profile_version": int(prefix[-1])})
+                                           "chunk_profile_version": int(base_prefix[-1])})
         return self.model_copy(update={"embedding_provider": "gemini", "embedding_model": model,
-                                       "embedding_dimensions": dimension_count, "chunk_profile_version": int(prefix[-1])})
+                                       "embedding_dimensions": dimension_count, "chunk_profile_version": int(base_prefix[-1])})
 
 
 @lru_cache

@@ -27,6 +27,11 @@ class Counts(PublicModel):
     chunks: int
 
 
+class Coverage(PublicModel):
+    indexedChunks: int
+    totalChunks: int
+
+
 class Citation(PublicModel):
     id: str
     analysisId: str
@@ -79,6 +84,9 @@ class Analysis(PublicModel):
     warnings: list[str]
     overview: Overview | None = None
     error: str | None = None
+    demo: bool = False
+    preview: bool = False
+    coverage: Coverage | None = None
 
 
 class Job(PublicModel):

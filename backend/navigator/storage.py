@@ -11,7 +11,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from pymongo import AsyncMongoClient, MongoClient, ReplaceOne
+from pymongo import AsyncMongoClient, MongoClient, ReplaceOne, ReturnDocument
 from pymongo.operations import SearchIndexModel
 
 from .config import Settings
@@ -103,6 +103,45 @@ class LocalStore:
         with self.lock:
             self._write(collection, [d for d in self._read(collection) if not matches(d, query)])
 
+    def pop(self, collection, query):
+        with self.lock:
+            found = self.one(collection, query)
+            if found:
+                self.delete(collection, query)
+            return found
+
+    def claim_free_repository(self, user_id, repository_id, analysis_id):
+        with self.lock:
+            user = self.one("users", {"id": user_id})
+            if not user or user.get("freeAnalysisId") not in (None, analysis_id):
+                return False
+            self.update("users", {"id": user_id}, {"freeRepositoryId": repository_id,
+                                                    "freeAnalysisId": analysis_id})
+            return True
+
+    def release_failed_repository(self, user_id, analysis_id):
+        with self.lock:
+            user = self.one("users", {"id": user_id})
+            if not user or user.get("freeAnalysisId") != analysis_id:
+                return False
+            self.update("users", {"id": user_id}, {"freeRepositoryId": None,
+                                                    "freeAnalysisId": None})
+            return True
+
+    def reserve_question(self, user_id, limit):
+        with self.lock:
+            user = self.one("users", {"id": user_id})
+            if not user or user.get("questionsUsed", 0) >= limit:
+                return False
+            self.update("users", {"id": user_id}, {"questionsUsed": user.get("questionsUsed", 0) + 1})
+            return True
+
+    def refund_question(self, user_id):
+        with self.lock:
+            user = self.one("users", {"id": user_id})
+            if user and user.get("questionsUsed", 0) > 0:
+                self.update("users", {"id": user_id}, {"questionsUsed": user["questionsUsed"] - 1})
+
     def close(self):
         pass
 
@@ -148,6 +187,32 @@ class MongoStore:
     def delete(self, collection, query):
         self.db[collection].delete_many(query)
 
+    def pop(self, collection, query):
+        return public(self.db[collection].find_one_and_delete(query))
+
+    def claim_free_repository(self, user_id, repository_id, analysis_id):
+        return self.db.users.find_one_and_update(
+            {"id": user_id, "$or": [{"freeAnalysisId": {"$exists": False}},
+                                     {"freeAnalysisId": analysis_id}]},
+            {"$set": {"freeRepositoryId": repository_id, "freeAnalysisId": analysis_id}},
+            return_document=ReturnDocument.AFTER) is not None
+
+    def release_failed_repository(self, user_id, analysis_id):
+        return self.db.users.find_one_and_update(
+            {"id": user_id, "freeAnalysisId": analysis_id},
+            {"$unset": {"freeRepositoryId": "", "freeAnalysisId": ""}},
+            return_document=ReturnDocument.AFTER) is not None
+
+    def reserve_question(self, user_id, limit):
+        return self.db.users.find_one_and_update(
+            {"id": user_id, "questionsUsed": {"$lt": limit}},
+            {"$inc": {"questionsUsed": 1}},
+            return_document=ReturnDocument.AFTER) is not None
+
+    def refund_question(self, user_id):
+        self.db.users.update_one({"id": user_id, "questionsUsed": {"$gt": 0}},
+                                 {"$inc": {"questionsUsed": -1}})
+
     def close(self):
         self.client.close()
 
@@ -180,8 +245,14 @@ def make_store(settings: Settings):
 def create_indexes(store: MongoStore, settings: Settings, search=True):
     for name in SCOPED:
         store.db[name].create_index([("analysisId", 1), ("id", 1)], unique=True)
-    for name in ("repositories", "analyses", "jobs", "embedding_cache"):
+    for name in ("repositories", "analyses", "jobs", "embedding_cache", "users",
+                 "user_analyses", "auth_sessions", "guest_sessions", "oauth_states", "demo_answers", "chat_turns"):
         store.db[name].create_index("id", unique=True)
+    store.db.user_analyses.create_index([("userId", 1), ("createdAt", -1)])
+    store.db.chat_turns.create_index([("userId", 1), ("analysisId", 1), ("createdAt", -1)])
+    store.db.oauth_states.create_index("deleteAfter", expireAfterSeconds=0)
+    store.db.auth_sessions.create_index("deleteAfter", expireAfterSeconds=0)
+    store.db.guest_sessions.create_index("deleteAfter", expireAfterSeconds=0)
     store.db.repositories.create_index("githubId", unique=True, sparse=True)
     store.db.analyses.create_index([("repositoryId", 1), ("commitSha", 1), ("profile", 1)], unique=True)
     store.db.files.create_index([("analysisId", 1), ("path", 1)], unique=True)

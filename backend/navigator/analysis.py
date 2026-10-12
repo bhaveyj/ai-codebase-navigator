@@ -1,5 +1,6 @@
 import hashlib
 import json
+import math
 import os
 import subprocess
 import tempfile
@@ -180,6 +181,46 @@ def build_chunks(files, regions, nodes, settings: Settings):
     if len(chunks) > settings.max_chunks:
         raise DomainError("CHUNK_LIMIT", "Repository exceeds the 15,000-chunk limit. Try a smaller repository.")
     return chunks
+
+
+def select_preview_chunks(chunks, max_embedding_bytes: int):
+    """Choose broad, deterministic repository coverage within a fixed budget."""
+    if not chunks:
+        return []
+    target = math.ceil(len(chunks) / 2)
+    by_path = {}
+    for chunk in chunks:
+        by_path.setdefault(chunk["path"], []).append(chunk)
+
+    def priority(path):
+        name = PurePosixPath(path).name.lower()
+        parts = {part.lower() for part in PurePosixPath(path).parts}
+        score = 0
+        if name.startswith("readme") or name in {"package.json", "pyproject.toml", "pom.xml"}:
+            score += 6
+        if name.split(".")[0] in {"main", "index", "app", "server", "routes", "api"}:
+            score += 5
+        if parts & {"routes", "api", "services", "server", "src"}:
+            score += 2
+        return (-score, path)
+
+    paths = sorted(by_path, key=priority)
+    selected, used = [], 0
+    while len(selected) < target:
+        added = False
+        for path in paths:
+            if not by_path[path] or len(selected) >= target:
+                continue
+            candidate = by_path[path].pop(0)
+            size = len(candidate["embeddingText"].encode("utf-8"))
+            if used + size > max_embedding_bytes:
+                continue
+            selected.append(candidate)
+            used += size
+            added = True
+        if not added:
+            break
+    return selected
 
 
 def _group_type(chunk):
