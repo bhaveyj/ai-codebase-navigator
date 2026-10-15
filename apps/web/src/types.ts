@@ -24,6 +24,11 @@ export interface AnswerBlock {
   kind: "fact" | "inference" | "unknown";
   citationIds: Array<string>;
 }
+export interface ArchitectureTour {
+  starts: Array<CodeNode>;
+  steps: Array<TourStep>;
+  warnings: Array<string>;
+}
 export interface Capabilities {
   languages: Array<LanguageCapability>;
   services: Services;
@@ -79,6 +84,19 @@ export interface CodeNode {
   exported?: boolean;
   tags?: Array<string>;
 }
+export interface Comparison {
+  base: Analysis;
+  current: Analysis;
+  files: Array<FileChange>;
+  symbolsAdded: number;
+  symbolsRemoved: number;
+  relationshipsAdded: Array<RelationshipChange>;
+  relationshipsRemoved: Array<RelationshipChange>;
+  relationshipsAddedCount: number;
+  relationshipsRemovedCount: number;
+  omittedRelationships: number;
+  warnings: Array<string>;
+}
 export interface Counts {
   files: number;
   symbols: number;
@@ -89,11 +107,59 @@ export interface Coverage {
   indexedChunks: number;
   totalChunks: number;
 }
+export interface FileChange {
+  path: string;
+  status: "added" | "removed" | "modified";
+  beforeLines: number;
+  afterLines: number;
+}
 export interface GraphData {
   nodes: Array<CodeNode>;
   edges: Array<CodeEdge>;
   omittedNodes: number;
   omittedEdges: number;
+}
+export interface ImpactItem {
+  node: CodeNode;
+  distance: number;
+  via: string;
+  relationship: string;
+  citation?: Citation;
+}
+export interface ImpactResponse {
+  selected: CodeNode;
+  direct: Array<ImpactItem>;
+  transitive: Array<ImpactItem>;
+  tests: Array<ImpactItem>;
+  routes: Array<Record<string, unknown>>;
+  omitted: number;
+  depth: number;
+  warnings: Array<string>;
+}
+export interface Investigation {
+  id: string;
+  analysisId: string;
+  title: string;
+  notes: string;
+  createdAt: string;
+  view: InvestigationView;
+  question: string;
+  answerText: string;
+  citations: Array<Citation>;
+}
+export interface InvestigationList {
+  investigations: Array<Investigation>;
+}
+export interface InvestigationView {
+  tab?: "map" | "overview" | "diagnostics" | "impact" | "compare" | "tour" | "saved";
+  level?: "modules" | "files" | "symbols";
+  focus?: string;
+  direction?: "both" | "dependencies" | "dependents";
+  selectedNodeId?: string;
+  startLine?: number;
+  endLine?: number;
+  layout?: "balanced" | "map" | "source" | "ask";
+  graphView?: "map" | "list";
 }
 export interface Job {
   id: string;
@@ -121,6 +187,13 @@ export interface Overview {
   summary?: string;
   citations?: Array<Citation>;
   blocks?: Array<AnswerBlock>;
+}
+export interface RelationshipChange {
+  source: string;
+  sourceName: string;
+  target: string;
+  targetName: string;
+  kind: string;
 }
 export interface Repository {
   id: string;
@@ -152,6 +225,15 @@ export interface Services {
   gemini: boolean;
   queue: boolean;
 }
+export interface SnapshotList {
+  snapshots: Array<Analysis>;
+}
+export interface SourceDiff {
+  path: string;
+  lines: Array<string>;
+  omittedLines: number;
+  redacted: boolean;
+}
 export interface SourceFile {
   id: string;
   analysisId: string;
@@ -165,6 +247,12 @@ export interface Submission {
   repository: Repository;
   analysis: Analysis;
   job: Job;
+}
+export interface TourStep {
+  node: CodeNode;
+  relationship?: string;
+  citation?: Citation;
+  branches: Array<CodeNode>;
 }
 export interface TreeEntry {
   id: string;

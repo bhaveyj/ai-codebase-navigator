@@ -5,7 +5,7 @@ import re
 import tarfile
 import tempfile
 from pathlib import Path, PurePosixPath
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import httpx
 
@@ -38,7 +38,7 @@ def normalize_url(value: str) -> tuple[str, str, str]:
     return owner, name, f"https://github.com/{owner}/{name}"
 
 
-def github_metadata(url: str, settings: Settings) -> dict:
+def github_metadata(url: str, settings: Settings, ref: str | None = None) -> dict:
     owner, name, _ = normalize_url(url)
     headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "Codebase-Navigator"}
     if settings.github_token:
@@ -56,7 +56,19 @@ def github_metadata(url: str, settings: Settings) -> dict:
                 raise DomainError("PRIVATE_REPOSITORY", "Only public GitHub repositories are supported.")
             canonical_owner, canonical_name, canonical_url = normalize_url(repo["html_url"])
             default_branch = repo["default_branch"]
-            commit_response = client.get(f"https://api.github.com/repos/{canonical_owner}/{canonical_name}/commits/{default_branch}")
+            revision = (ref or default_branch).strip()
+            if not revision or any(ord(char) < 32 for char in revision):
+                raise DomainError("INVALID_REVISION", "Enter a branch, tag, commit SHA, or PR #number.")
+            pull = re.fullmatch(r"(?:PR\s*#?|#|pull/)([1-9][0-9]*)", revision, re.I)
+            if pull:
+                pull_response = client.get(f"https://api.github.com/repos/{canonical_owner}/{canonical_name}/pulls/{pull.group(1)}")
+                if pull_response.status_code == 404:
+                    raise DomainError("REVISION_NOT_FOUND", "That pull request was not found.", 404)
+                pull_response.raise_for_status()
+                revision = pull_response.json()["head"]["sha"]
+            commit_response = client.get(f"https://api.github.com/repos/{canonical_owner}/{canonical_name}/commits/{quote(revision, safe='')}")
+            if commit_response.status_code == 404 or commit_response.status_code == 422:
+                raise DomainError("REVISION_NOT_FOUND", "That branch, tag, or commit was not found.", 404)
             commit_response.raise_for_status()
             sha = commit_response.json()["sha"]
             if not re.fullmatch(r"[a-f0-9]{40}", sha):

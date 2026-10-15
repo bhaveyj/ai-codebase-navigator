@@ -40,7 +40,7 @@ def neighbors(nodes, edges, focus, direction="both", depth=1, limit=100):
     return [by_id[id] for id in sorted(seen)], list(selected_edges.values()), len(omitted)
 
 
-def project_graph(nodes, edges, level="modules", focus=None, direction="both", depth=1, language=None, kind=None):
+def project_graph(nodes, edges, level="modules", focus=None, direction="both", depth=1, language=None, kind=None, limit=100):
     if focus:
         focus_node = scoped_node(nodes, focus)
         # A container focus drills into its children; files/symbols explore actual dependencies.
@@ -62,13 +62,18 @@ def project_graph(nodes, edges, level="modules", focus=None, direction="both", d
         if level == "modules":
             # Start with broad directory boundaries; drill/search exposes deeper folders.
             candidates = [node for node in candidates if node["kind"] == "repository" or len([part for part in node.get("path", "").split("/") if part not in {"", "."}]) <= 2]
+            boundaries = [node for node in candidates if node["kind"] == "module" and node.get("path") not in {None, "", "."}]
+            if boundaries:
+                root_sources = any(node["kind"] == "file" and node.get("parentId") == "module:." and node.get("language") in {"javascript", "typescript", "python", "java"} for node in nodes)
+                candidates = boundaries + ([node for node in candidates if node["id"] == "module:."] if root_sources else [])
         omitted_neighbors = 0
     if language:
         candidates = [node for node in candidates if node.get("language") == language or node["kind"] in {"repository", "module"}]
     if kind:
         candidates = [node for node in candidates if node["kind"] == kind or node.get("symbolKind") == kind]
     candidates.sort(key=lambda n: (n["kind"] != "repository", n.get("path", ""), n["name"]))
-    selected = candidates[:100]
+    limit = max(1, min(1000, limit))
+    selected = candidates[:limit]
     ids = {node["id"] for node in selected}
     selected_edges = [edge for edge in edges if edge["source"] in ids and edge["target"] in ids]
     # Project file imports onto their module ancestors, retaining edge IDs as provenance.
@@ -97,4 +102,5 @@ def project_graph(nodes, edges, level="modules", focus=None, direction="both", d
         selected_edges += list(grouped.values())
     if focus and scoped_node(nodes, focus)["kind"] in {"file", "symbol"} and level != "symbols":
         selected_edges = [edge for edge in selected_edges if edge["kind"] != "contains"]
-    return {"nodes": selected, "edges": selected_edges[:200], "omittedNodes": max(0, len(candidates) - 100) + omitted_neighbors, "omittedEdges": max(0, len(selected_edges) - 200)}
+    edge_limit = min(5000, limit * 2)
+    return {"nodes": selected, "edges": selected_edges[:edge_limit], "omittedNodes": max(0, len(candidates) - limit) + omitted_neighbors, "omittedEdges": max(0, len(selected_edges) - edge_limit)}

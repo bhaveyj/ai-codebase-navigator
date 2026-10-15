@@ -19,7 +19,8 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from ..config import Settings, get_settings
 from .. import auth
-from ..contracts import ChatRequest, DomainError, JobRetryRequest, SubmitRequest
+from ..contracts import ChatRequest, DomainError, InvestigationRequest, JobRetryRequest, SubmitRequest
+from ..exploration import architecture_tour, compare_snapshots, impact_analysis, source_diff
 from ..demo import answer_id
 from ..graph import project_graph
 from ..ingestion import demo_files, github_metadata
@@ -27,7 +28,7 @@ from ..jobs import create_job, delete_repository, launch, now, recover_jobs
 from ..rag import answer_question, dependency_answer, stream_answer_question
 from ..quota import QuotaGate
 from ..storage import AsyncStore, create_indexes, make_store
-from ..responses import Analysis, Capabilities, ChatResponse, GraphData, Job, RepositoryList, SearchResponse, SourceFile, Submission, TreeResponse
+from ..responses import Analysis, ArchitectureTour, Capabilities, ChatResponse, CodeNode, Comparison, GraphData, ImpactResponse, Investigation, InvestigationList, Job, RepositoryList, SearchResponse, SnapshotList, SourceDiff, SourceFile, Submission, TreeResponse
 
 logger = logging.getLogger(__name__)
 
@@ -248,7 +249,7 @@ def create_app(config: Settings | None = None):
         user = await asyncio.to_thread(auth.current_user, app.state.store, request, config)
         if not user and config.mode == "production":
             user = await asyncio.to_thread(auth.ensure_guest, app.state.store, request, response, config)
-        metadata = await asyncio.to_thread(github_metadata, body.url, config)
+        metadata = await asyncio.to_thread(github_metadata, body.url, config, body.ref) if body.ref else await asyncio.to_thread(github_metadata, body.url, config)
         preview = config.mode == "production" and bool(user and user.get("guest"))
         profile = config.preview_analysis_profile if preview else config.analysis_profile
         analysis_id = hashlib.sha256(f"github-{metadata['githubId']}:{metadata['commitSha']}:{profile}".encode()).hexdigest()[:24]
@@ -415,9 +416,119 @@ def create_app(config: Settings | None = None):
         return {"results": [{key: node[key] for key in ("id", "kind", "name", "path", "startLine", "symbolKind") if key in node} for node in results[offset:offset + limit]], "total": len(results)}
 
     @app.get("/api/v1/analyses/{analysis_id}/graph", response_model=GraphData, response_model_exclude_none=True)
-    async def graph(analysis_id: str, request: Request, level: Literal["modules", "files", "symbols"] = "modules", focus: str | None = None, direction: Literal["both", "dependencies", "dependents"] = "both", depth: int = Query(default=1, ge=1, le=2), language: str | None = None, kind: str | None = None):
+    async def graph(analysis_id: str, request: Request, level: Literal["modules", "files", "symbols"] = "modules", focus: str | None = None, direction: Literal["both", "dependencies", "dependents"] = "both", depth: int = Query(default=1, ge=1, le=2), language: str | None = None, kind: str | None = None, limit: int = Query(default=100, ge=1, le=1000)):
         _, nodes, edges = await graph_data(analysis_id, request)
-        return await asyncio.to_thread(project_graph, nodes, edges, level, focus, direction, depth, language, kind)
+        return await asyncio.to_thread(project_graph, nodes, edges, level, focus, direction, depth, language, kind, limit)
+
+    @app.get("/api/v1/analyses/{analysis_id}/impact", response_model=ImpactResponse, response_model_exclude_none=True)
+    async def impact(analysis_id: str, request: Request, node: str, depth: int = Query(default=3, ge=1, le=5)):
+        analysis, nodes, edges = await graph_data(analysis_id, request)
+        files = await app.state.async_store.find("files", {"analysisId": analysis_id}, projection={"content": 0})
+        return await asyncio.to_thread(impact_analysis, analysis, nodes, edges, files, node, depth)
+
+    @app.get("/api/v1/analyses/{analysis_id}/nodes/{node_id:path}", response_model=CodeNode, response_model_exclude_none=True)
+    async def graph_node(analysis_id: str, node_id: str, request: Request):
+        await authorized_analysis(analysis_id, request)
+        node = await app.state.async_store.one("nodes", {"analysisId": analysis_id, "id": node_id})
+        if not node:
+            raise DomainError("NODE_NOT_FOUND", "This node does not belong to this snapshot.", 404)
+        return node
+
+    @app.get("/api/v1/analyses/{analysis_id}/snapshots", response_model=SnapshotList, response_model_exclude_none=True)
+    async def snapshots(analysis_id: str, request: Request):
+        analysis = await authorized_analysis(analysis_id, request)
+        candidates = await app.state.async_store.find("analyses", {"repositoryId": analysis["repositoryId"]}, limit=500)
+        permitted = []
+        for candidate in candidates:
+            try:
+                await authorized_analysis(candidate["id"], request)
+                permitted.append(candidate)
+            except DomainError:
+                continue
+        return {"snapshots": sorted(permitted, key=lambda item: item["createdAt"], reverse=True)}
+
+    async def comparison_data(analysis_id, base, request):
+        current, nodes, edges = await graph_data(analysis_id, request)
+        previous, old_nodes, old_edges = await graph_data(base, request)
+        if current["repositoryId"] != previous["repositoryId"]:
+            raise DomainError("DIFFERENT_REPOSITORIES", "Choose two snapshots of the same repository.")
+        return previous, current, old_nodes, nodes, old_edges, edges
+
+    @app.get("/api/v1/analyses/{analysis_id}/compare", response_model=Comparison, response_model_exclude_none=True)
+    async def compare(analysis_id: str, request: Request, base: str):
+        previous, current, old_nodes, nodes, old_edges, edges = await comparison_data(analysis_id, base, request)
+        before, after = await asyncio.gather(app.state.async_store.find("files", {"analysisId": base}, projection={"content": 0}),
+                                            app.state.async_store.find("files", {"analysisId": analysis_id}, projection={"content": 0}))
+        return await asyncio.to_thread(compare_snapshots, previous, current, before, after, old_nodes, nodes, old_edges, edges)
+
+    @app.get("/api/v1/analyses/{analysis_id}/compare/file", response_model=SourceDiff)
+    async def compare_file(analysis_id: str, request: Request, base: str, path: str = Query(max_length=2048)):
+        await comparison_data(analysis_id, base, request)
+        before, after = await asyncio.gather(app.state.async_store.one("files", {"analysisId": base, "path": path}),
+                                            app.state.async_store.one("files", {"analysisId": analysis_id, "path": path}))
+        if not before and not after:
+            raise DomainError("FILE_NOT_FOUND", "This file is not in either snapshot.", 404)
+        return await asyncio.to_thread(source_diff, before, after, path)
+
+    @app.get("/api/v1/analyses/{analysis_id}/tour", response_model=ArchitectureTour, response_model_exclude_none=True)
+    async def tour(analysis_id: str, request: Request, start: str | None = None):
+        analysis, nodes, edges = await graph_data(analysis_id, request)
+        files = await app.state.async_store.find("files", {"analysisId": analysis_id}, projection={"content": 0})
+        return await asyncio.to_thread(architecture_tour, analysis, nodes, edges, files, start)
+
+    async def investigation_owner(analysis_id, request):
+        await authorized_analysis(analysis_id, request)
+        if config.mode == "local":
+            return "local"
+        user = await asyncio.to_thread(auth.require_identity, app.state.store, request, config)
+        return user["id"]
+
+    @app.get("/api/v1/analyses/{analysis_id}/investigations", response_model=InvestigationList, response_model_exclude_none=True)
+    async def investigations(analysis_id: str, request: Request):
+        owner = await investigation_owner(analysis_id, request)
+        saved = await app.state.async_store.find("investigations", {"analysisId": analysis_id, "userId": owner}, limit=100)
+        return {"investigations": sorted(saved, key=lambda item: item["createdAt"], reverse=True)}
+
+    @app.post("/api/v1/analyses/{analysis_id}/investigations", response_model=Investigation, response_model_exclude_none=True, status_code=201)
+    async def save_investigation(analysis_id: str, request: Request, body: InvestigationRequest):
+        owner = await investigation_owner(analysis_id, request)
+        analysis, nodes, _ = await graph_data(analysis_id, request)
+        from ..graph import scoped_node
+        for node_id in (body.view.focus, body.view.selectedNodeId):
+            if node_id:
+                scoped_node(nodes, node_id)
+        if body.view.startLine or body.view.endLine:
+            selected = scoped_node(nodes, body.view.selectedNodeId)
+            selected_file = selected["id"] if selected["kind"] == "file" else selected.get("fileId")
+            source = await app.state.async_store.one("files", {"analysisId": analysis_id, "id": selected_file})
+            start, end = body.view.startLine, body.view.endLine or body.view.startLine
+            if not source or not start or not 1 <= start <= end <= source["lineCount"]:
+                raise DomainError("INVALID_SOURCE_RANGE", "Choose a source range within the selected file.")
+        if not body.title.strip():
+            raise DomainError("TITLE_REQUIRED", "Give this investigation a title.")
+        saved = await app.state.async_store.find("investigations", {"analysisId": analysis_id, "userId": owner}, limit=100)
+        if len(saved) >= 100:
+            raise DomainError("INVESTIGATION_LIMIT", "This snapshot already has 100 saved investigations. Remove one to save another.", 409)
+        citations = []
+        for index, item in enumerate(body.citations):
+            file = await app.state.async_store.one("files", {"analysisId": analysis_id, "id": item.fileId})
+            if not file or not 1 <= item.startLine <= item.endLine <= file["lineCount"]:
+                raise DomainError("INVALID_CITATION", "A saved source range does not belong to this snapshot.")
+            citations.append({"id": f"S{index + 1}", "analysisId": analysis_id, "commitSha": analysis["commitSha"],
+                              "fileId": file["id"], "path": file["path"], "startLine": item.startLine, "endLine": item.endLine})
+        item = {**body.model_dump(exclude={"citations"}), "id": uuid.uuid4().hex, "analysisId": analysis_id,
+                "userId": owner, "createdAt": now(), "title": body.title.strip(), "citations": citations}
+        await asyncio.to_thread(app.state.store.put, "investigations", item)
+        return item
+
+    @app.delete("/api/v1/analyses/{analysis_id}/investigations/{investigation_id}", status_code=204)
+    async def remove_investigation(analysis_id: str, investigation_id: str, request: Request):
+        owner = await investigation_owner(analysis_id, request)
+        query = {"id": investigation_id, "analysisId": analysis_id, "userId": owner}
+        if not await app.state.async_store.one("investigations", query):
+            raise DomainError("NOT_FOUND", "The investigation was not found.", 404)
+        await asyncio.to_thread(app.state.store.delete, "investigations", query)
+        return Response(status_code=204)
 
     async def reserve_answer(request):
         if config.mode == "local":
@@ -561,6 +672,7 @@ def create_app(config: Settings | None = None):
             await asyncio.to_thread(app.state.store.delete, "user_analyses", {"userId": user["id"], "repositoryId": repository_id})
             for grant in grants:
                 await asyncio.to_thread(app.state.store.delete, "chat_turns", {"userId": user["id"], "analysisId": grant["analysisId"]})
+                await asyncio.to_thread(app.state.store.delete, "investigations", {"userId": user["id"], "analysisId": grant["analysisId"]})
             if user.get("guest"):
                 for analysis in analyses:
                     if analysis["status"] in {"failed", "cancelled"} and not analysis.get("graphReady"):

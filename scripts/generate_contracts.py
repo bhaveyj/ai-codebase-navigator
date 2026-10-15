@@ -11,7 +11,9 @@ from navigator import responses
 
 MODELS = (responses.RepositoryList, responses.Submission, responses.GraphData,
           responses.SourceFile, responses.TreeResponse, responses.SearchResponse,
-          responses.ChatResponse, responses.Capabilities)
+          responses.ChatResponse, responses.Capabilities, responses.ImpactResponse,
+          responses.Comparison, responses.SourceDiff, responses.ArchitectureTour,
+          responses.InvestigationList, responses.SnapshotList)
 
 
 def ts_type(schema):

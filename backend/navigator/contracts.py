@@ -54,6 +54,32 @@ class Region(SourceRange):
 
 class SubmitRequest(Contract):
     url: str = Field(min_length=1, max_length=2048)
+    ref: str | None = Field(default=None, max_length=256)
+
+
+class InvestigationView(Contract):
+    tab: Literal["map", "overview", "diagnostics", "impact", "compare", "tour", "saved"] = "map"
+    level: Literal["modules", "files", "symbols"] = "modules"
+    focus: str = Field(default="", max_length=2048)
+    direction: Literal["both", "dependencies", "dependents"] = "both"
+    selectedNodeId: str | None = Field(default=None, max_length=2048)
+    startLine: int | None = Field(default=None, ge=1)
+    endLine: int | None = Field(default=None, ge=1)
+    layout: Literal["balanced", "map", "source", "ask"] = "balanced"
+    graphView: Literal["map", "list"] = "map"
+
+
+class InvestigationCitation(SourceRange):
+    fileId: str = Field(max_length=2048)
+
+
+class InvestigationRequest(Contract):
+    title: str = Field(min_length=1, max_length=120)
+    notes: str = Field(default="", max_length=4000)
+    view: InvestigationView = Field(default_factory=InvestigationView)
+    question: str = Field(default="", max_length=4000)
+    answerText: str = Field(default="", max_length=24000)
+    citations: list[InvestigationCitation] = Field(default_factory=list, max_length=30)
 
 
 class JobRetryRequest(Contract):

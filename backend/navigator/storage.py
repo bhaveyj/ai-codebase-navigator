@@ -246,10 +246,11 @@ def create_indexes(store: MongoStore, settings: Settings, search=True):
     for name in SCOPED:
         store.db[name].create_index([("analysisId", 1), ("id", 1)], unique=True)
     for name in ("repositories", "analyses", "jobs", "embedding_cache", "users",
-                 "user_analyses", "auth_sessions", "guest_sessions", "oauth_states", "demo_answers", "chat_turns"):
+                 "user_analyses", "auth_sessions", "guest_sessions", "oauth_states", "demo_answers", "chat_turns", "investigations"):
         store.db[name].create_index("id", unique=True)
     store.db.user_analyses.create_index([("userId", 1), ("createdAt", -1)])
     store.db.chat_turns.create_index([("userId", 1), ("analysisId", 1), ("createdAt", -1)])
+    store.db.investigations.create_index([("userId", 1), ("analysisId", 1), ("createdAt", -1)])
     store.db.oauth_states.create_index("deleteAfter", expireAfterSeconds=0)
     store.db.auth_sessions.create_index("deleteAfter", expireAfterSeconds=0)
     store.db.guest_sessions.create_index("deleteAfter", expireAfterSeconds=0)

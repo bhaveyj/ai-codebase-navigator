@@ -99,6 +99,8 @@ def finish_login(store, settings, state: str, cookie_state: str | None, code: st
         for turn in store.find("chat_turns", {"userId": guest["id"]}):
             store.ensure("chat_turns", {**turn, "id": f"migrated:{user_id}:{turn['id']}",
                                         "userId": user_id})
+        for item in store.find("investigations", {"userId": guest["id"]}):
+            store.ensure("investigations", {**item, "id": f"migrated:{user_id}:{item['id']}", "userId": user_id})
     session = secrets.token_urlsafe(48)
     session_record = {"id": digest(session), "userId": user_id,
                       "expiresAt": int(time.time()) + SESSION_SECONDS}

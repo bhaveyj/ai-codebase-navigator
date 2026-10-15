@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .contracts import Edge, Node, SourceRange
+from .contracts import Edge, InvestigationView, Node, SourceRange
 
 
 class PublicModel(BaseModel):
@@ -184,3 +184,91 @@ class Capabilities(PublicModel):
     languages: list[LanguageCapability]
     services: Services
     mode: Literal["local", "production"]
+
+
+class ImpactItem(PublicModel):
+    node: CodeNode
+    distance: int
+    via: str
+    relationship: str
+    citation: Citation | None = None
+
+
+class ImpactResponse(PublicModel):
+    selected: CodeNode
+    direct: list[ImpactItem]
+    transitive: list[ImpactItem]
+    tests: list[ImpactItem]
+    routes: list[dict]
+    omitted: int
+    depth: int
+    warnings: list[str]
+
+
+class SnapshotList(PublicModel):
+    snapshots: list[Analysis]
+
+
+class FileChange(PublicModel):
+    path: str
+    status: Literal["added", "removed", "modified"]
+    beforeLines: int
+    afterLines: int
+
+
+class RelationshipChange(PublicModel):
+    source: str
+    sourceName: str
+    target: str
+    targetName: str
+    kind: str
+
+
+class Comparison(PublicModel):
+    base: Analysis
+    current: Analysis
+    files: list[FileChange]
+    symbolsAdded: int
+    symbolsRemoved: int
+    relationshipsAdded: list[RelationshipChange]
+    relationshipsRemoved: list[RelationshipChange]
+    relationshipsAddedCount: int
+    relationshipsRemovedCount: int
+    omittedRelationships: int
+    warnings: list[str]
+
+
+class SourceDiff(PublicModel):
+    path: str
+    lines: list[str]
+    omittedLines: int
+    redacted: bool
+
+
+class TourStep(PublicModel):
+    node: CodeNode
+    relationship: str | None = None
+    citation: Citation | None = None
+    branches: list[CodeNode]
+
+
+class ArchitectureTour(PublicModel):
+    starts: list[CodeNode]
+    steps: list[TourStep]
+    warnings: list[str]
+
+
+class Investigation(PublicModel):
+    id: str
+    analysisId: str
+    title: str
+    notes: str
+    createdAt: str
+    view: InvestigationView
+    question: str
+    answerText: str
+    citations: list[Citation]
+
+
+class InvestigationList(PublicModel):
+    investigations: list[Investigation]

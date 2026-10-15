@@ -195,6 +195,30 @@ Completed live checks and their limits are recorded in [VALIDATION.md](VALIDATIO
 Public response schemas generate [OpenAPI](contracts/openapi.json) and frontend
 types with `python scripts/generate_contracts.py`. Go and Rust remain planned.
 
+## Investigation workspace
+
+- **Split / Map / Source / Ask** layouts let you focus a task. Drag the pane
+  separators or use their arrow keys to resize; file and assistant widths are
+  remembered in this browser. Compact screens use drawers and a panel switcher.
+- **Impact** follows reverse static dependencies up to five steps and lists
+  connected routes and test files. Symbol impact deliberately includes its
+  containing file. These are potential effects, not runtime or test coverage claims.
+- **Compare** compares two accessible snapshots of the same repository, including
+  redacted source diffs and added/removed dependency relationships. Analyze another
+  revision using a branch, tag, commit SHA, or `PR #123`. Only public repositories
+  are supported. Renames appear as a removal and addition; identical overloaded
+  symbol names are grouped when comparing relationships.
+- **Paths** walks a recorded dependency path from an entry point or a file you
+  choose. Each step can open source or its relationship evidence. Branch choices
+  start another path; the tour is not an execution trace.
+- **Save view / Save answer** keeps source ranges, graph focus, notes, and answer
+  evidence in **Saved**. Investigations belong to the current account or browser
+  guest identity and are migrated on sign-in. Local mode saves them to the data
+  directory. Removing a repository from a workspace removes its saved investigations.
+- The map offers a searchable **List view**, explicit **Explore inside** actions,
+  a relationship legend, and bounded expansion to 1,000 nodes. Larger maps retain
+  readable zoom; use pan, focus, or list view to navigate their contents.
+
 ## Verification
 
 ```sh

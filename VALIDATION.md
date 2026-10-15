@@ -1,5 +1,29 @@
 # V1 validation
 
+## Investigation workspace — 15 October 2026
+
+- Full backend suite: **162 passed, 3 skipped**. After the final graph projection
+  and comparison-count changes, the affected exploration/graph suite passed
+  **23 tests**, including an additional root-module projection regression.
+- Frontend TypeScript and production Docker builds passed. The existing lazy
+  Monaco editor bundle still produces the size warning described below.
+- Added coverage for reverse dependency direction and cycles, connected tests and
+  routes, snapshot comparison across changing analyzer IDs and line positions,
+  bounded redacted source diffs, source-backed paths, account access, investigation
+  ownership/range validation, persistence, graph expansion, and branch/PR resolution.
+- Browser checks at `localhost:8080` verified impact evidence opening highlighted
+  source, full source layout, graph list/drill navigation, a prepared demo answer,
+  saved-answer creation and resume after reload, comparison of two existing demo
+  snapshots, and returning to the same architecture-path step after reading source.
+- A 390 × 844 browser viewport verified source wrapping, the file drawer, panel
+  switcher, and architecture paths without horizontal page overflow. The viewport
+  override was reset after testing.
+- The live demo snapshots contain identical source; changed-source diffs and
+  branch/PR resolution were checked in controlled tests. No new repository was
+  indexed and no new live model answer was requested during browser verification.
+
+The remaining text records earlier V1 checks and their original scope.
+
 Verified on 8 October 2026 against the local Docker stack, MongoDB Atlas Search
 and Vector Search, and real Gemini embedding and generation requests. This is a
 development validation record, not a benchmark across arbitrary repositories.

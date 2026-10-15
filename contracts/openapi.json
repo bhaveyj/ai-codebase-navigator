@@ -747,6 +747,18 @@
               ],
               "title": "Kind"
             }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
           }
         ],
         "responses": {
@@ -759,6 +771,441 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/analyses/{analysis_id}/impact": {
+      "get": {
+        "summary": "Impact",
+        "operationId": "impact_api_v1_analyses__analysis_id__impact_get",
+        "parameters": [
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Analysis Id"
+            }
+          },
+          {
+            "name": "node",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Node"
+            }
+          },
+          {
+            "name": "depth",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5,
+              "minimum": 1,
+              "default": 3,
+              "title": "Depth"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImpactResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/analyses/{analysis_id}/nodes/{node_id}": {
+      "get": {
+        "summary": "Graph Node",
+        "operationId": "graph_node_api_v1_analyses__analysis_id__nodes__node_id__get",
+        "parameters": [
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Analysis Id"
+            }
+          },
+          {
+            "name": "node_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Node Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodeNode"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/analyses/{analysis_id}/snapshots": {
+      "get": {
+        "summary": "Snapshots",
+        "operationId": "snapshots_api_v1_analyses__analysis_id__snapshots_get",
+        "parameters": [
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Analysis Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/analyses/{analysis_id}/compare": {
+      "get": {
+        "summary": "Compare",
+        "operationId": "compare_api_v1_analyses__analysis_id__compare_get",
+        "parameters": [
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Analysis Id"
+            }
+          },
+          {
+            "name": "base",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Base"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Comparison"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/analyses/{analysis_id}/compare/file": {
+      "get": {
+        "summary": "Compare File",
+        "operationId": "compare_file_api_v1_analyses__analysis_id__compare_file_get",
+        "parameters": [
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Analysis Id"
+            }
+          },
+          {
+            "name": "base",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Base"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 2048,
+              "title": "Path"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceDiff"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/analyses/{analysis_id}/tour": {
+      "get": {
+        "summary": "Tour",
+        "operationId": "tour_api_v1_analyses__analysis_id__tour_get",
+        "parameters": [
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Analysis Id"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchitectureTour"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/analyses/{analysis_id}/investigations": {
+      "get": {
+        "summary": "Investigations",
+        "operationId": "investigations_api_v1_analyses__analysis_id__investigations_get",
+        "parameters": [
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Analysis Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Save Investigation",
+        "operationId": "save_investigation_api_v1_analyses__analysis_id__investigations_post",
+        "parameters": [
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Analysis Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvestigationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Investigation"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/analyses/{analysis_id}/investigations/{investigation_id}": {
+      "delete": {
+        "summary": "Remove Investigation",
+        "operationId": "remove_investigation_api_v1_analyses__analysis_id__investigations__investigation_id__delete",
+        "parameters": [
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Analysis Id"
+            }
+          },
+          {
+            "name": "investigation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Investigation Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -1159,6 +1606,38 @@
           "citationIds"
         ],
         "title": "AnswerBlock"
+      },
+      "ArchitectureTour": {
+        "properties": {
+          "starts": {
+            "items": {
+              "$ref": "#/components/schemas/CodeNode"
+            },
+            "type": "array",
+            "title": "Starts"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/TourStep"
+            },
+            "type": "array",
+            "title": "Steps"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "starts",
+          "steps",
+          "warnings"
+        ],
+        "title": "ArchitectureTour"
       },
       "Capabilities": {
         "properties": {
@@ -1629,6 +2108,79 @@
         ],
         "title": "CodeNode"
       },
+      "Comparison": {
+        "properties": {
+          "base": {
+            "$ref": "#/components/schemas/Analysis"
+          },
+          "current": {
+            "$ref": "#/components/schemas/Analysis"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/FileChange"
+            },
+            "type": "array",
+            "title": "Files"
+          },
+          "symbolsAdded": {
+            "type": "integer",
+            "title": "Symbolsadded"
+          },
+          "symbolsRemoved": {
+            "type": "integer",
+            "title": "Symbolsremoved"
+          },
+          "relationshipsAdded": {
+            "items": {
+              "$ref": "#/components/schemas/RelationshipChange"
+            },
+            "type": "array",
+            "title": "Relationshipsadded"
+          },
+          "relationshipsRemoved": {
+            "items": {
+              "$ref": "#/components/schemas/RelationshipChange"
+            },
+            "type": "array",
+            "title": "Relationshipsremoved"
+          },
+          "relationshipsAddedCount": {
+            "type": "integer",
+            "title": "Relationshipsaddedcount"
+          },
+          "relationshipsRemovedCount": {
+            "type": "integer",
+            "title": "Relationshipsremovedcount"
+          },
+          "omittedRelationships": {
+            "type": "integer",
+            "title": "Omittedrelationships"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "base",
+          "current",
+          "files",
+          "symbolsAdded",
+          "symbolsRemoved",
+          "relationshipsAdded",
+          "relationshipsRemoved",
+          "relationshipsAddedCount",
+          "relationshipsRemovedCount",
+          "omittedRelationships",
+          "warnings"
+        ],
+        "title": "Comparison"
+      },
       "Counts": {
         "properties": {
           "files": {
@@ -1674,6 +2226,39 @@
           "totalChunks"
         ],
         "title": "Coverage"
+      },
+      "FileChange": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "added",
+              "removed",
+              "modified"
+            ],
+            "title": "Status"
+          },
+          "beforeLines": {
+            "type": "integer",
+            "title": "Beforelines"
+          },
+          "afterLines": {
+            "type": "integer",
+            "title": "Afterlines"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "status",
+          "beforeLines",
+          "afterLines"
+        ],
+        "title": "FileChange"
       },
       "GraphData": {
         "properties": {
@@ -1745,6 +2330,352 @@
           "content"
         ],
         "title": "HistoryTurn"
+      },
+      "ImpactItem": {
+        "properties": {
+          "node": {
+            "$ref": "#/components/schemas/CodeNode"
+          },
+          "distance": {
+            "type": "integer",
+            "title": "Distance"
+          },
+          "via": {
+            "type": "string",
+            "title": "Via"
+          },
+          "relationship": {
+            "type": "string",
+            "title": "Relationship"
+          },
+          "citation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Citation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "node",
+          "distance",
+          "via",
+          "relationship"
+        ],
+        "title": "ImpactItem"
+      },
+      "ImpactResponse": {
+        "properties": {
+          "selected": {
+            "$ref": "#/components/schemas/CodeNode"
+          },
+          "direct": {
+            "items": {
+              "$ref": "#/components/schemas/ImpactItem"
+            },
+            "type": "array",
+            "title": "Direct"
+          },
+          "transitive": {
+            "items": {
+              "$ref": "#/components/schemas/ImpactItem"
+            },
+            "type": "array",
+            "title": "Transitive"
+          },
+          "tests": {
+            "items": {
+              "$ref": "#/components/schemas/ImpactItem"
+            },
+            "type": "array",
+            "title": "Tests"
+          },
+          "routes": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Routes"
+          },
+          "omitted": {
+            "type": "integer",
+            "title": "Omitted"
+          },
+          "depth": {
+            "type": "integer",
+            "title": "Depth"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "selected",
+          "direct",
+          "transitive",
+          "tests",
+          "routes",
+          "omitted",
+          "depth",
+          "warnings"
+        ],
+        "title": "ImpactResponse"
+      },
+      "Investigation": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "analysisId": {
+            "type": "string",
+            "title": "Analysisid"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "notes": {
+            "type": "string",
+            "title": "Notes"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          },
+          "view": {
+            "$ref": "#/components/schemas/InvestigationView"
+          },
+          "question": {
+            "type": "string",
+            "title": "Question"
+          },
+          "answerText": {
+            "type": "string",
+            "title": "Answertext"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/Citation"
+            },
+            "type": "array",
+            "title": "Citations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "analysisId",
+          "title",
+          "notes",
+          "createdAt",
+          "view",
+          "question",
+          "answerText",
+          "citations"
+        ],
+        "title": "Investigation"
+      },
+      "InvestigationCitation": {
+        "properties": {
+          "startLine": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Startline"
+          },
+          "endLine": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Endline"
+          },
+          "fileId": {
+            "type": "string",
+            "maxLength": 2048,
+            "title": "Fileid"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "startLine",
+          "endLine",
+          "fileId"
+        ],
+        "title": "InvestigationCitation"
+      },
+      "InvestigationList": {
+        "properties": {
+          "investigations": {
+            "items": {
+              "$ref": "#/components/schemas/Investigation"
+            },
+            "type": "array",
+            "title": "Investigations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "investigations"
+        ],
+        "title": "InvestigationList"
+      },
+      "InvestigationRequest": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Notes",
+            "default": ""
+          },
+          "view": {
+            "$ref": "#/components/schemas/InvestigationView"
+          },
+          "question": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Question",
+            "default": ""
+          },
+          "answerText": {
+            "type": "string",
+            "maxLength": 24000,
+            "title": "Answertext",
+            "default": ""
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/InvestigationCitation"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Citations"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "title": "InvestigationRequest"
+      },
+      "InvestigationView": {
+        "properties": {
+          "tab": {
+            "type": "string",
+            "enum": [
+              "map",
+              "overview",
+              "diagnostics",
+              "impact",
+              "compare",
+              "tour",
+              "saved"
+            ],
+            "title": "Tab",
+            "default": "map"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "modules",
+              "files",
+              "symbols"
+            ],
+            "title": "Level",
+            "default": "modules"
+          },
+          "focus": {
+            "type": "string",
+            "maxLength": 2048,
+            "title": "Focus",
+            "default": ""
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "both",
+              "dependencies",
+              "dependents"
+            ],
+            "title": "Direction",
+            "default": "both"
+          },
+          "selectedNodeId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selectednodeid"
+          },
+          "startLine": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startline"
+          },
+          "endLine": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endline"
+          },
+          "layout": {
+            "type": "string",
+            "enum": [
+              "balanced",
+              "map",
+              "source",
+              "ask"
+            ],
+            "title": "Layout",
+            "default": "balanced"
+          },
+          "graphView": {
+            "type": "string",
+            "enum": [
+              "map",
+              "list"
+            ],
+            "title": "Graphview",
+            "default": "map"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "InvestigationView"
       },
       "Job": {
         "properties": {
@@ -1949,6 +2880,39 @@
         ],
         "title": "Overview"
       },
+      "RelationshipChange": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "sourceName": {
+            "type": "string",
+            "title": "Sourcename"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "targetName": {
+            "type": "string",
+            "title": "Targetname"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "sourceName",
+          "target",
+          "targetName",
+          "kind"
+        ],
+        "title": "RelationshipChange"
+      },
       "Repository": {
         "properties": {
           "id": {
@@ -2116,6 +3080,53 @@
         ],
         "title": "Services"
       },
+      "SnapshotList": {
+        "properties": {
+          "snapshots": {
+            "items": {
+              "$ref": "#/components/schemas/Analysis"
+            },
+            "type": "array",
+            "title": "Snapshots"
+          }
+        },
+        "type": "object",
+        "required": [
+          "snapshots"
+        ],
+        "title": "SnapshotList"
+      },
+      "SourceDiff": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "lines": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Lines"
+          },
+          "omittedLines": {
+            "type": "integer",
+            "title": "Omittedlines"
+          },
+          "redacted": {
+            "type": "boolean",
+            "title": "Redacted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "lines",
+          "omittedLines",
+          "redacted"
+        ],
+        "title": "SourceDiff"
+      },
       "SourceFile": {
         "properties": {
           "id": {
@@ -2186,6 +3197,18 @@
             "maxLength": 2048,
             "minLength": 1,
             "title": "Url"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref"
           }
         },
         "additionalProperties": false,
@@ -2194,6 +3217,47 @@
           "url"
         ],
         "title": "SubmitRequest"
+      },
+      "TourStep": {
+        "properties": {
+          "node": {
+            "$ref": "#/components/schemas/CodeNode"
+          },
+          "relationship": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relationship"
+          },
+          "citation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Citation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "branches": {
+            "items": {
+              "$ref": "#/components/schemas/CodeNode"
+            },
+            "type": "array",
+            "title": "Branches"
+          }
+        },
+        "type": "object",
+        "required": [
+          "node",
+          "branches"
+        ],
+        "title": "TourStep"
       },
       "TreeEntry": {
         "properties": {

@@ -299,4 +299,5 @@ def delete_repository(store, repository_id):
             store.delete(collection, {"analysisId": analysis["id"]})
         store.delete("jobs", {"id": analysis["jobId"]})
         store.delete("analyses", {"id": analysis["id"]})
+        store.delete("investigations", {"analysisId": analysis["id"]})
     store.delete("repositories", {"id": repository_id})
