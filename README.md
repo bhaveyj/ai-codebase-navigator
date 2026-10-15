@@ -122,7 +122,7 @@ Open **http://localhost:8080**. API docs are at
 and API ports bind to loopback by default.
 The prewarm command waits for the example repository's embeddings and saves three
 source-grounded answers. Run it once after provider credentials are configured,
-and again if the embedding model or chunk profile changes. Rebuild the API,
+and again if the embedding model, chunk profile, or answer style changes. Rebuild the API,
 worker, and scheduler together after backend changes; otherwise queued jobs may
 fail on an analysis profile that the older worker does not recognize.
 

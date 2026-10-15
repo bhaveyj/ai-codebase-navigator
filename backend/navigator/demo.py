@@ -6,10 +6,11 @@ QUESTIONS = (
     "How does authentication work?",
     "Where are the API routes?",
 )
+ANSWER_STYLE_VERSION = "detailed-v2"
 
 
 def answer_id(analysis_id: str, question: str) -> str:
-    return f"{analysis_id}:{hashlib.sha256(question.strip().casefold().encode()).hexdigest()}"
+    return f"{analysis_id}:{hashlib.sha256((ANSWER_STYLE_VERSION + ':' + question.strip().casefold()).encode()).hexdigest()}"
 
 
 def routes_answer(store, analysis):

@@ -97,6 +97,7 @@ def test_groq_answer_receives_schema_and_retains_citation_validation(monkeypatch
     answer = rag.answer_question(store, {"id": "analysis", "commitSha": "abc"}, question, settings)
 
     assert "citationIds" in requests[0][0] and "edgeIds" in requests[0][0]
+    assert "3 to 6 focused" in requests[0][0]
     assert requests[0][1]["sources"][0]["citationId"] == "S1"
     assert [len(turn["content"]) for turn in requests[0][1]["recentConversation"]] == [1000, 1000]
     assert answer["citations"][0]["chunkId"] == evidence["id"]
@@ -111,6 +112,31 @@ def test_groq_answer_receives_schema_and_retains_citation_validation(monkeypatch
         rag.answer_question(store, {"id": "analysis", "commitSha": "abc"}, ChatRequest(message="What is exported?"), settings)
     assert caught.value.code == "GROUNDING_FAILED"
     assert len(invalid_calls) == 1
+
+
+def test_detail_follow_up_keeps_previous_topic_in_generation(monkeypatch, tmp_path):
+    settings = cloudflare_settings()
+    store = LocalStore(tmp_path)
+    file = make_file("src/auth.py", b"def authenticate(token):\n    return verify(token)\n", "analysis")
+    store.put("files", file)
+    evidence = {"id": "chunk:auth", "analysisId": "analysis", "fileId": file["id"],
+                "path": file["path"], "startLine": 1, "endLine": 2, "text": file["content"]}
+    monkeypatch.setattr(rag, "retrieve", lambda *_args: ([evidence], [], []))
+    captured = []
+    def generate(_system, payload, _settings):
+        captured.append(payload)
+        return {"blocks": [{"text": "The function verifies a token.", "kind": "fact", "citationIds": ["S1"], "edgeIds": []}]}
+    monkeypatch.setattr(rag, "generate_groq", generate)
+    request = ChatRequest(message="explain in detail", history=[
+        {"role": "user", "content": "How does authentication work?"},
+        {"role": "assistant", "content": "Authentication uses a token."},
+    ])
+
+    answer = rag.answer_question(store, {"id": "analysis", "commitSha": "abc"}, request, settings)
+
+    assert captured[0]["question"] == "explain in detail"
+    assert captured[0]["conversationTopic"] == "How does authentication work?"
+    assert answer["blocks"][0]["citationIds"] == ["S1"]
 
 
 def test_stream_answer_emits_validated_blocks_before_completion(monkeypatch, tmp_path):

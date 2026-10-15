@@ -4,7 +4,38 @@ from types import SimpleNamespace
 
 from navigator.config import Settings
 from navigator.contracts import ChatRequest
+from navigator import rag
 from navigator.rag import retrieve
+
+
+def test_follow_up_uses_previous_substantive_question_for_retrieval(monkeypatch):
+    questions = []
+    class Store:
+        is_mongo = True
+        def __init__(self):
+            self.db = SimpleNamespace(chunks=SimpleNamespace(aggregate=self.aggregate))
+        def aggregate(self, pipeline):
+            return []
+        def one(self, *_args):
+            return None
+        def put(self, *_args):
+            pass
+        def find(self, collection, *_args, **_kwargs):
+            return []
+    monkeypatch.setattr(rag, "embed", lambda question, *_args, **_kwargs: questions.append(("vector", question)) or [0.1])
+    monkeypatch.setattr(rag, "lexical_pipeline", lambda _id, question, _settings: questions.append(("lexical", question)) or [{}])
+    request = ChatRequest(message="explain in detail", history=[
+        {"role": "user", "content": "How does authentication work?"},
+        {"role": "assistant", "content": "It uses tokens."},
+        {"role": "user", "content": "tell me more"},
+        {"role": "assistant", "content": "A short answer."},
+    ])
+
+    retrieve(Store(), {"id": "analysis", "ragReady": True}, request, Settings(_env_file=None))
+
+    assert questions == [("vector", "How does authentication work?"),
+                         ("lexical", "How does authentication work?")]
+    assert rag.conversation_topic(ChatRequest(message="Explain authentication in detail", history=request.history)) is None
 
 
 def test_gateway_overview_prioritizes_routes_and_security_over_manifest_and_selection_noise():
