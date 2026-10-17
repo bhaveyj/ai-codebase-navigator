@@ -209,6 +209,51 @@ class SnapshotList(PublicModel):
     snapshots: list[Analysis]
 
 
+class CommitSummary(PublicModel):
+    sha: str
+    message: str
+    author: str
+    committedAt: str
+
+
+class CommitList(PublicModel):
+    commits: list[CommitSummary]
+    page: int
+    hasMore: bool
+    branch: str
+
+
+class CommitChangedFile(PublicModel):
+    filename: str
+    previousFilename: str | None = None
+    status: str
+    additions: int
+    deletions: int
+    patch: str | None = None
+    patchTruncated: bool = False
+    redacted: bool = False
+
+
+class CommitDetail(PublicModel):
+    sha: str
+    message: str
+    url: str
+    files: list[CommitChangedFile]
+    page: int
+    hasMore: bool
+
+
+class CommitComparison(PublicModel):
+    selectedSha: str
+    currentSha: str
+    baseSha: str
+    headSha: str
+    status: str
+    files: list[CommitChangedFile]
+    possiblyTruncated: bool
+    url: str
+
+
 class FileChange(PublicModel):
     path: str
     status: Literal["added", "removed", "modified"]

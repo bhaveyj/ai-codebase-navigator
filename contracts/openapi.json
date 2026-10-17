@@ -932,6 +932,163 @@
         }
       }
     },
+    "/api/v1/analyses/{analysis_id}/commits": {
+      "get": {
+        "summary": "Commits",
+        "operationId": "commits_api_v1_analyses__analysis_id__commits_get",
+        "parameters": [
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Analysis Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommitList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/analyses/{analysis_id}/commits/{sha}": {
+      "get": {
+        "summary": "Commit Detail",
+        "operationId": "commit_detail_api_v1_analyses__analysis_id__commits__sha__get",
+        "parameters": [
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Analysis Id"
+            }
+          },
+          {
+            "name": "sha",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sha"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommitDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/analyses/{analysis_id}/compare/commits": {
+      "get": {
+        "summary": "Compare Commits",
+        "operationId": "compare_commits_api_v1_analyses__analysis_id__compare_commits_get",
+        "parameters": [
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Analysis Id"
+            }
+          },
+          {
+            "name": "selected",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Selected"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommitComparison"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/analyses/{analysis_id}/compare": {
       "get": {
         "summary": "Compare",
@@ -2107,6 +2264,217 @@
           "name"
         ],
         "title": "CodeNode"
+      },
+      "CommitChangedFile": {
+        "properties": {
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "previousFilename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previousfilename"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "additions": {
+            "type": "integer",
+            "title": "Additions"
+          },
+          "deletions": {
+            "type": "integer",
+            "title": "Deletions"
+          },
+          "patch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Patch"
+          },
+          "patchTruncated": {
+            "type": "boolean",
+            "title": "Patchtruncated",
+            "default": false
+          },
+          "redacted": {
+            "type": "boolean",
+            "title": "Redacted",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "filename",
+          "status",
+          "additions",
+          "deletions"
+        ],
+        "title": "CommitChangedFile"
+      },
+      "CommitComparison": {
+        "properties": {
+          "selectedSha": {
+            "type": "string",
+            "title": "Selectedsha"
+          },
+          "currentSha": {
+            "type": "string",
+            "title": "Currentsha"
+          },
+          "baseSha": {
+            "type": "string",
+            "title": "Basesha"
+          },
+          "headSha": {
+            "type": "string",
+            "title": "Headsha"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/CommitChangedFile"
+            },
+            "type": "array",
+            "title": "Files"
+          },
+          "possiblyTruncated": {
+            "type": "boolean",
+            "title": "Possiblytruncated"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "selectedSha",
+          "currentSha",
+          "baseSha",
+          "headSha",
+          "status",
+          "files",
+          "possiblyTruncated",
+          "url"
+        ],
+        "title": "CommitComparison"
+      },
+      "CommitDetail": {
+        "properties": {
+          "sha": {
+            "type": "string",
+            "title": "Sha"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/CommitChangedFile"
+            },
+            "type": "array",
+            "title": "Files"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "hasMore": {
+            "type": "boolean",
+            "title": "Hasmore"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sha",
+          "message",
+          "url",
+          "files",
+          "page",
+          "hasMore"
+        ],
+        "title": "CommitDetail"
+      },
+      "CommitList": {
+        "properties": {
+          "commits": {
+            "items": {
+              "$ref": "#/components/schemas/CommitSummary"
+            },
+            "type": "array",
+            "title": "Commits"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "hasMore": {
+            "type": "boolean",
+            "title": "Hasmore"
+          },
+          "branch": {
+            "type": "string",
+            "title": "Branch"
+          }
+        },
+        "type": "object",
+        "required": [
+          "commits",
+          "page",
+          "hasMore",
+          "branch"
+        ],
+        "title": "CommitList"
+      },
+      "CommitSummary": {
+        "properties": {
+          "sha": {
+            "type": "string",
+            "title": "Sha"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "author": {
+            "type": "string",
+            "title": "Author"
+          },
+          "committedAt": {
+            "type": "string",
+            "title": "Committedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sha",
+          "message",
+          "author",
+          "committedAt"
+        ],
+        "title": "CommitSummary"
       },
       "Comparison": {
         "properties": {

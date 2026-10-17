@@ -11,7 +11,7 @@ from urllib.parse import urlencode, urlsplit
 
 import httpx
 from fastapi import Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 
 from .contracts import DomainError
 
@@ -176,6 +176,6 @@ def logout(store, request, settings):
     token = request.cookies.get(SESSION_COOKIE)
     if token:
         store.delete("auth_sessions", {"id": digest(token)})
-    response = RedirectResponse("/", status_code=302)
+    response = Response(status_code=204)
     response.delete_cookie(SESSION_COOKIE, path="/")
     return response

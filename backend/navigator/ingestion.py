@@ -78,6 +78,112 @@ def github_metadata(url: str, settings: Settings, ref: str | None = None) -> dic
         raise DomainError("GITHUB_UNAVAILABLE", "Unable to fetch repository metadata from GitHub. Retry when GitHub is reachable.", 503) from error
 
 
+def github_commits(url: str, branch: str, settings: Settings, page: int, per_page: int = 30) -> dict:
+    """Read one page of public commit history without fetching repository contents."""
+    owner, name, _ = normalize_url(url)
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "Codebase-Navigator"}
+    if settings.github_token:
+        headers["Authorization"] = f"Bearer {settings.github_token}"
+    try:
+        with httpx.Client(timeout=30, follow_redirects=False, headers=headers) as client:
+            response = client.get(f"https://api.github.com/repos/{owner}/{name}/commits", params={"sha": branch, "page": page, "per_page": per_page})
+            if response.status_code == 404:
+                raise DomainError("REPOSITORY_NOT_FOUND", "Repository commit history was not found or is not publicly accessible.", 404)
+            if response.status_code in {403, 429}:
+                raise DomainError("GITHUB_RATE_LIMIT", "GitHub rate limited commit history. Retry later or configure a server-side GitHub token.", 503)
+            response.raise_for_status()
+            result = response.json()
+            if not isinstance(result, list):
+                raise DomainError("INVALID_GITHUB_RESPONSE", "GitHub returned an invalid commit history.", 502)
+            commits = []
+            for item in result:
+                sha = item.get("sha", "")
+                if not re.fullmatch(r"[a-f0-9]{40}", sha):
+                    raise DomainError("INVALID_GITHUB_RESPONSE", "GitHub returned an invalid commit identifier.", 502)
+                commit = item.get("commit") or {}
+                author = commit.get("author") or {}
+                committer = commit.get("committer") or {}
+                commits.append({"sha": sha, "message": str(commit.get("message") or "Untitled commit").splitlines()[0][:240],
+                                "author": str(author.get("name") or committer.get("name") or "Unknown author")[:100],
+                                "committedAt": str(committer.get("date") or author.get("date") or "")})
+            return {"commits": commits, "page": page, "hasMore": 'rel="next"' in response.headers.get("link", ""), "branch": branch}
+    except httpx.HTTPError as error:
+        raise DomainError("GITHUB_UNAVAILABLE", "Unable to fetch commit history from GitHub. Retry when GitHub is reachable.", 503) from error
+
+
+def _changed_file(item: dict) -> dict:
+    if not isinstance(item, dict):
+        raise DomainError("INVALID_GITHUB_RESPONSE", "GitHub returned invalid changed-file details.", 502)
+    patch = item.get("patch")
+    cleaned, redacted = sanitize(str(patch)[:12000]) if patch is not None else (None, False)
+    return {"filename": str(item.get("filename") or "")[:2048],
+            "previousFilename": str(item["previous_filename"])[:2048] if item.get("previous_filename") else None,
+            "status": str(item.get("status") or "modified"),
+            "additions": int(item.get("additions") or 0), "deletions": int(item.get("deletions") or 0),
+            "patch": cleaned, "patchTruncated": bool(patch and len(patch) > 12000), "redacted": redacted}
+
+
+def github_commit_changes(url: str, sha: str, settings: Settings, page: int = 1) -> dict:
+    """Return a bounded page of the files changed by one public commit."""
+    owner, name, _ = normalize_url(url)
+    if not re.fullmatch(r"[a-f0-9]{40}", sha):
+        raise DomainError("INVALID_REVISION", "Choose a commit from the repository history.")
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "Codebase-Navigator"}
+    if settings.github_token:
+        headers["Authorization"] = f"Bearer {settings.github_token}"
+    try:
+        with httpx.Client(timeout=30, follow_redirects=False, headers=headers) as client:
+            response = client.get(f"https://api.github.com/repos/{owner}/{name}/commits/{sha}", params={"page": page, "per_page": 100})
+            if response.status_code == 404:
+                raise DomainError("REVISION_NOT_FOUND", "That commit was not found in this repository.", 404)
+            if response.status_code in {403, 429}:
+                raise DomainError("GITHUB_RATE_LIMIT", "GitHub rate limited commit details. Retry later or configure a server-side GitHub token.", 503)
+            response.raise_for_status()
+            data = response.json()
+            if not isinstance(data, dict) or data.get("sha") != sha or not isinstance(data.get("files"), list):
+                raise DomainError("INVALID_GITHUB_RESPONSE", "GitHub returned invalid commit details.", 502)
+            files = [_changed_file(item) for item in data["files"]]
+            return {"sha": sha, "message": str((data.get("commit") or {}).get("message") or "Untitled commit").splitlines()[0][:240],
+                    "url": f"https://github.com/{owner}/{name}/commit/{sha}", "files": files,
+                    "page": page, "hasMore": 'rel="next"' in response.headers.get("link", "")}
+    except httpx.HTTPError as error:
+        raise DomainError("GITHUB_UNAVAILABLE", "Unable to fetch commit details from GitHub. Retry when GitHub is reachable.", 503) from error
+
+
+def github_compare_commits(url: str, selected_sha: str, current_sha: str, settings: Settings) -> dict:
+    """Compare two public GitHub revisions directly, without creating an analysis job."""
+    owner, name, _ = normalize_url(url)
+    if not all(re.fullmatch(r"[a-f0-9]{40}", sha) for sha in (selected_sha, current_sha)):
+        raise DomainError("INVALID_REVISION", "Choose a commit from the repository history.")
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "Codebase-Navigator"}
+    if settings.github_token:
+        headers["Authorization"] = f"Bearer {settings.github_token}"
+    try:
+        with httpx.Client(timeout=30, follow_redirects=False, headers=headers) as client:
+            base, head = selected_sha, current_sha
+            for _ in range(2):
+                endpoint = f"https://api.github.com/repos/{owner}/{name}/compare/{base}...{head}"
+                response = client.get(endpoint, params={"page": 1, "per_page": 100})
+                if response.status_code in {404, 422}:
+                    raise DomainError("REVISION_NOT_FOUND", "These commits could not be compared in this repository.", 404)
+                if response.status_code in {403, 429}:
+                    raise DomainError("GITHUB_RATE_LIMIT", "GitHub rate limited commit comparison. Retry later or configure a server-side GitHub token.", 503)
+                response.raise_for_status()
+                data = response.json()
+                if not isinstance(data, dict) or not isinstance(data.get("files"), list):
+                    raise DomainError("INVALID_GITHUB_RESPONSE", "GitHub returned an invalid commit comparison.", 502)
+                if data.get("status") != "behind":
+                    files = [_changed_file(item) for item in data["files"]]
+                    return {"selectedSha": selected_sha, "currentSha": current_sha,
+                            "baseSha": base, "headSha": head, "status": str(data.get("status") or "unknown"),
+                            "files": files, "possiblyTruncated": len(files) >= 300,
+                            "url": f"https://github.com/{owner}/{name}/compare/{base}...{head}"}
+                base, head = head, base
+            raise DomainError("INVALID_GITHUB_RESPONSE", "GitHub could not determine the comparison direction.", 502)
+    except httpx.HTTPError as error:
+        raise DomainError("GITHUB_UNAVAILABLE", "Unable to compare commits on GitHub. Retry when GitHub is reachable.", 503) from error
+
+
 def safe_archive_path(name: str) -> str | None:
     if "\\" in name or "\x00" in name or name.startswith("/") or re.match(r"^[A-Za-z]:", name):
         raise DomainError("UNSAFE_ARCHIVE", "Archive contains an unsafe path.")

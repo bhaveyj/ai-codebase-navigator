@@ -141,6 +141,18 @@ def test_analysis_id_and_job_routes_are_private(secured_client):
     assert client.get("/api/v1/analyses/analysis-2/chat/history").status_code == 404
 
 
+def test_logout_clears_session_and_returns_api_response(tmp_path):
+    store = LocalStore(tmp_path)
+    token = "signed-in-session"
+    store.put("auth_sessions", {"id": auth.digest(token), "userId": "github:1",
+                                "expiresAt": int(time.time()) + 3600})
+    request = type("Request", (), {"cookies": {auth.SESSION_COOKIE: token}})()
+    response = auth.logout(store, request, None)
+    assert response.status_code == 204
+    assert store.one("auth_sessions", {"id": auth.digest(token)}) is None
+    assert auth.SESSION_COOKIE + "=" in response.headers["set-cookie"]
+
+
 def test_repository_list_shows_latest_analysis_once(secured_client):
     client = secured_client
     client.sign_in("github:1")

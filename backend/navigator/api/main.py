@@ -23,14 +23,19 @@ from ..contracts import ChatRequest, DomainError, InvestigationRequest, JobRetry
 from ..exploration import architecture_tour, compare_snapshots, impact_analysis, source_diff
 from ..demo import answer_id
 from ..graph import project_graph
-from ..ingestion import demo_files, github_metadata
+from ..ingestion import demo_files, github_commit_changes, github_commits, github_compare_commits, github_metadata
 from ..jobs import create_job, delete_repository, launch, now, recover_jobs
 from ..rag import answer_question, dependency_answer, stream_answer_question
 from ..quota import QuotaGate
 from ..storage import AsyncStore, create_indexes, make_store
-from ..responses import Analysis, ArchitectureTour, Capabilities, ChatResponse, CodeNode, Comparison, GraphData, ImpactResponse, Investigation, InvestigationList, Job, RepositoryList, SearchResponse, SnapshotList, SourceDiff, SourceFile, Submission, TreeResponse
+from ..responses import Analysis, ArchitectureTour, Capabilities, ChatResponse, CodeNode, CommitComparison, CommitDetail, CommitList, Comparison, GraphData, ImpactResponse, Investigation, InvestigationList, Job, RepositoryList, SearchResponse, SnapshotList, SourceDiff, SourceFile, Submission, TreeResponse
 
 logger = logging.getLogger(__name__)
+
+
+def preferred_repository_analysis(history: list[dict]) -> dict:
+    """Keep an existing usable map ahead of a newer unfinished revision."""
+    return next((analysis for analysis in history if analysis.get("graphReady")), history[0])
 
 
 def create_app(config: Settings | None = None):
@@ -209,14 +214,13 @@ def create_app(config: Settings | None = None):
                     analyses.append(analysis)
             analyses.sort(key=lambda item: item["createdAt"], reverse=True)
             repos = []
-            seen_repositories = set()
-            for analysis in analyses:
-                if analysis["repositoryId"] in seen_repositories:
-                    continue
-                repo = await app.state.async_store.one("repositories", {"id": analysis["repositoryId"]})
+            repository_ids = list(dict.fromkeys(analysis["repositoryId"] for analysis in analyses))
+            for repository_id in repository_ids:
+                repo = await app.state.async_store.one("repositories", {"id": repository_id})
                 if repo:
-                    repos.append({**repo, "latestAnalysisId": analysis["id"]})
-                    seen_repositories.add(analysis["repositoryId"])
+                    history = [analysis for analysis in analyses if analysis["repositoryId"] == repository_id]
+                    preferred = preferred_repository_analysis(history)
+                    repos.append({**repo, "latestAnalysisId": preferred["id"]})
             return {"repositories": repos, "analyses": analyses}
         repos, analyses = await asyncio.gather(app.state.async_store.find("repositories", limit=100), app.state.async_store.find("analyses", limit=500))
         return {"repositories": repos, "analyses": sorted(analyses, key=lambda item: item["createdAt"], reverse=True)}
@@ -446,6 +450,30 @@ def create_app(config: Settings | None = None):
             except DomainError:
                 continue
         return {"snapshots": sorted(permitted, key=lambda item: item["createdAt"], reverse=True)}
+
+    @app.get("/api/v1/analyses/{analysis_id}/commits", response_model=CommitList)
+    async def commits(analysis_id: str, request: Request, page: int = Query(default=1, ge=1)):
+        analysis = await authorized_analysis(analysis_id, request)
+        if analysis.get("demo"):
+            return {"commits": [], "page": page, "hasMore": False, "branch": ""}
+        repository = await one("repositories", analysis["repositoryId"])
+        return await asyncio.to_thread(github_commits, repository["url"], repository["defaultBranch"], config, page)
+
+    @app.get("/api/v1/analyses/{analysis_id}/commits/{sha}", response_model=CommitDetail, response_model_exclude_none=True)
+    async def commit_detail(analysis_id: str, sha: str, request: Request, page: int = Query(default=1, ge=1)):
+        analysis = await authorized_analysis(analysis_id, request)
+        if analysis.get("demo"):
+            raise DomainError("NOT_FOUND", "The sample repository has no GitHub commit history.", 404)
+        repository = await one("repositories", analysis["repositoryId"])
+        return await asyncio.to_thread(github_commit_changes, repository["url"], sha, config, page)
+
+    @app.get("/api/v1/analyses/{analysis_id}/compare/commits", response_model=CommitComparison, response_model_exclude_none=True)
+    async def compare_commits(analysis_id: str, request: Request, selected: str):
+        analysis = await authorized_analysis(analysis_id, request)
+        if analysis.get("demo"):
+            raise DomainError("NOT_FOUND", "The sample repository has no GitHub commit history.", 404)
+        repository = await one("repositories", analysis["repositoryId"])
+        return await asyncio.to_thread(github_compare_commits, repository["url"], selected, analysis["commitSha"], config)
 
     async def comparison_data(analysis_id, base, request):
         current, nodes, edges = await graph_data(analysis_id, request)

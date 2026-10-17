@@ -24,8 +24,8 @@ monaco.languages.setMonarchTokensProvider('json', {tokenizer: {root: [
   [/\b(?:true|false|null)\b/, 'keyword'], [/-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/, 'number'],
 ]}});
 monaco.editor.defineTheme('atlas', {base: 'vs-dark', inherit: true, rules: [
-  {token: 'comment', foreground: '657b81', fontStyle: 'italic'}, {token: 'keyword', foreground: 'b0a2de'}, {token: 'string', foreground: 'a9c68c'}, {token: 'number', foreground: 'd3a86a'}, {token: 'type.identifier', foreground: '87c8cd'},
-], colors: {'editor.background': '#11191d', 'editor.foreground': '#c4cfd4', 'editorLineNumber.foreground': '#42535c', 'editorLineNumber.activeForeground': '#a5bbbF', 'editor.selectionBackground': '#2b4a51', 'editor.lineHighlightBackground': '#182328', 'editorCursor.foreground': '#8ddfd0', 'editorWidget.background': '#1c2a30'}});
+  {token: 'comment', foreground: '819b99', fontStyle: 'italic'}, {token: 'keyword', foreground: 'b9adeb'}, {token: 'string', foreground: 'b8d495'}, {token: 'number', foreground: 'e2b985'}, {token: 'type.identifier', foreground: '9bd7d2'},
+], colors: {'editor.background': '#10191c', 'editor.foreground': '#d7e5e0', 'editorLineNumber.foreground': '#607879', 'editorLineNumber.activeForeground': '#c3e7d2', 'editor.selectionBackground': '#31564b', 'editor.lineHighlightBackground': '#1d342f', 'editorCursor.foreground': '#b7e9cb', 'editorWidget.background': '#1b2d2e'}});
 
 export default function CodeViewer({analysisId, selected, lines, onClose, onExplain, onDependencies, onImpact, onMaximize, maximized}: {analysisId: string; selected: CodeNode; lines?: {start: number; end: number}; onClose: () => void; onExplain: () => void; onDependencies: (direction: Direction) => void; onImpact: () => void; onMaximize: () => void; maximized: boolean}) {
   const [wrap, setWrap] = useState(true);

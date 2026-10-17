@@ -9,7 +9,7 @@ from navigator.api import main
 from navigator.config import Settings
 from navigator.exploration import architecture_tour, compare_snapshots, impact_analysis, source_diff
 from navigator.graph import project_graph
-from navigator.ingestion import github_metadata
+from navigator.ingestion import github_commit_changes, github_commits, github_compare_commits, github_metadata
 from navigator.storage import AsyncStore, LocalStore
 
 
@@ -158,3 +158,75 @@ def test_revision_metadata_resolves_branch_and_pull_request(monkeypatch,ref,expe
     monkeypatch.setattr('navigator.ingestion.httpx.Client',lambda **_:Github())
     assert github_metadata('https://github.com/example/repo',Settings(_env_file=None),ref)["commitSha"] == "b"*40
     assert any(url.endswith(expected) for url in urls)
+
+
+def test_github_commit_history_uses_default_branch_and_next_link(monkeypatch):
+    calls = []
+    class Github:
+        def __enter__(self): return self
+        def __exit__(self, *_): return None
+        def get(self, url, params):
+            calls.append((url, params))
+            sha = "b" * 40 if params["page"] == 1 else "a" * 40
+            headers = {"Link": '<https://api.github.com/next>; rel="next"'} if params["page"] == 1 else {}
+            return httpx.Response(200, json=[{"sha": sha, "commit": {"message": "Fix paths\nMore detail", "author": {"name": "Ada", "date": "2026-10-15T00:00:00Z"}, "committer": {"date": "2026-10-15T01:00:00Z"}}}], headers=headers, request=httpx.Request('GET', url))
+    monkeypatch.setattr('navigator.ingestion.httpx.Client', lambda **_: Github())
+    first = github_commits('https://github.com/example/repo', 'main', Settings(_env_file=None), 1)
+    second = github_commits('https://github.com/example/repo', 'main', Settings(_env_file=None), 2)
+    assert first["hasMore"] and not second["hasMore"]
+    assert first["commits"][0] == {"sha": "b" * 40, "message": "Fix paths", "author": "Ada", "committedAt": "2026-10-15T01:00:00Z"}
+    assert calls[0][1] == {"sha": "main", "page": 1, "per_page": 30}
+
+
+def test_github_commit_changes_lists_files_without_analyzing(monkeypatch):
+    sha = "a" * 40
+    calls = []
+
+    class Github:
+        def __enter__(self): return self
+        def __exit__(self, *_): return None
+        def get(self, url, params):
+            calls.append((url, params))
+            return httpx.Response(200, json={
+                "sha": sha,
+                "commit": {"message": "Update production domain\nDetails"},
+                "files": [
+                    {"filename": "deploy/domain.txt", "status": "modified", "additions": 1, "deletions": 1,
+                     "patch": "@@ -1 +1 @@\n-old\n+new"},
+                    {"filename": "assets/logo.png", "status": "added", "additions": 0, "deletions": 0},
+                ],
+            }, headers={"Link": '<https://api.github.com/next>; rel="next"'}, request=httpx.Request('GET', url))
+
+    monkeypatch.setattr('navigator.ingestion.httpx.Client', lambda **_: Github())
+    result = github_commit_changes('https://github.com/example/repo', sha, Settings(_env_file=None))
+    assert result["message"] == "Update production domain"
+    assert [item["filename"] for item in result["files"]] == ["deploy/domain.txt", "assets/logo.png"]
+    assert result["files"][0]["patch"] == "@@ -1 +1 @@\n-old\n+new"
+    assert result["files"][1]["patch"] is None
+    assert result["hasMore"] and result["page"] == 1
+    assert calls == [(f"https://api.github.com/repos/example/repo/commits/{sha}", {"page": 1, "per_page": 100})]
+
+
+def test_github_commit_comparison_reverses_older_current_snapshot(monkeypatch):
+    current = "a" * 40
+    selected = "b" * 40
+    calls = []
+
+    class Github:
+        def __enter__(self): return self
+        def __exit__(self, *_): return None
+        def get(self, url, params):
+            calls.append((url, params))
+            newer_is_head = url.endswith(f"{current}...{selected}")
+            data = {"status": "ahead" if newer_is_head else "behind", "files": [
+                {"filename": "apps/web/index.html", "status": "modified", "additions": 3,
+                 "deletions": 1, "patch": "@@ -1 +1 @@\n-old\n+new"}
+            ] if newer_is_head else []}
+            return httpx.Response(200, json=data, request=httpx.Request('GET', url))
+
+    monkeypatch.setattr('navigator.ingestion.httpx.Client', lambda **_: Github())
+    result = github_compare_commits('https://github.com/example/repo', selected, current, Settings(_env_file=None))
+    assert result["baseSha"] == current and result["headSha"] == selected
+    assert result["files"][0]["filename"] == "apps/web/index.html"
+    assert len(calls) == 2
+    assert all(params == {"page": 1, "per_page": 100} for _, params in calls)

@@ -84,6 +84,46 @@ export interface CodeNode {
   exported?: boolean;
   tags?: Array<string>;
 }
+export interface CommitChangedFile {
+  filename: string;
+  previousFilename?: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  patch?: string;
+  patchTruncated?: boolean;
+  redacted?: boolean;
+}
+export interface CommitComparison {
+  selectedSha: string;
+  currentSha: string;
+  baseSha: string;
+  headSha: string;
+  status: string;
+  files: Array<CommitChangedFile>;
+  possiblyTruncated: boolean;
+  url: string;
+}
+export interface CommitDetail {
+  sha: string;
+  message: string;
+  url: string;
+  files: Array<CommitChangedFile>;
+  page: number;
+  hasMore: boolean;
+}
+export interface CommitList {
+  commits: Array<CommitSummary>;
+  page: number;
+  hasMore: boolean;
+  branch: string;
+}
+export interface CommitSummary {
+  sha: string;
+  message: string;
+  author: string;
+  committedAt: string;
+}
 export interface Comparison {
   base: Analysis;
   current: Analysis;

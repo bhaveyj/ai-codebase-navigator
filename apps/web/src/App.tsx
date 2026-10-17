@@ -1,33 +1,36 @@
-import { useState, type FormEvent } from 'react';
-import { Route, Routes, useNavigate } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Check, ChevronRight, CircleAlert, Code2, ExternalLink, FileCode2, Folder, GitFork, Github, Layers3, Loader2, Network, Play, Plus, RefreshCw, ShieldCheck, Sparkles } from 'lucide-react';
-import { api, enc, post } from './api';
-import type { Analysis, Capabilities, Job, Repository } from './types';
-import { Logo, Rail, StatusDot, RelativeTime, analysisLabel } from './RepositoryPanels';
+import { useEffect, useState } from 'react';
+import { Route, Routes } from 'react-router-dom';
+import Home from './HomePages';
 import Workspace from './Workspace';
-type Session = {authenticated: boolean; user: {id: string; login: string; avatarUrl: string} | null; questionsRemaining: number | null; freeRepositoryUsed: boolean; limitsApply: boolean};
-function Home() {
-  const navigate = useNavigate(); const cache = useQueryClient(); const [url, setUrl] = useState('');
-  const session = useQuery({queryKey: ['session'], queryFn: () => api<Session>('/auth/me')});
-  const repos = useQuery({queryKey: ['repositories'], queryFn: () => api<{repositories: Repository[]; analyses: Analysis[]}>('/repositories'), enabled: session.isSuccess, refetchInterval: 12000});
-  const capabilities = useQuery({queryKey: ['capabilities'], queryFn: () => api<Capabilities>('/capabilities')});
-  const start = useMutation({mutationFn: (demo: boolean) => demo ? api<{repository: Repository; analysis: Analysis; job: Job}>('/demo') : post<{repository: Repository; analysis: Analysis; job: Job}>('/repositories', {url: url.trim()}), onSuccess: result => {cache.setQueryData(['analysis', result.analysis.id], result.analysis); void cache.invalidateQueries({queryKey: ['repositories']}); void cache.invalidateQueries({queryKey: ['session']}); navigate(`/analysis/${enc(result.analysis.id)}`);}});
-  const restore = useMutation({mutationFn: () => post<{repository: Repository; analysis: Analysis; job: Job}>('/repositories/restore'), onSuccess: result => {cache.setQueryData(['analysis', result.analysis.id], result.analysis); void cache.invalidateQueries({queryKey: ['repositories']}); navigate(`/analysis/${enc(result.analysis.id)}`);}});
-  const submit = (event: FormEvent) => {event.preventDefault(); start.mutate(false);};
-  return <><Rail/><div className="home-shell"><header className="home-topbar"><div><Layers3 size={15}/><span>Workspace</span><ChevronRight size={13}/><span className="muted">Repositories</span></div><div className="account-actions">{session.data?.authenticated ? <><span>{session.data.user?.login}</span><button className="text-button" onClick={async () => {await post('/auth/logout'); window.location.assign('/');}}>Sign out</button></> : capabilities.data?.mode === 'production' ? <a className="button secondary" href="/api/v1/auth/github/start"><Github size={15}/> Sign in with GitHub</a> : <span className="workspace-label"><StatusDot ready={!!capabilities.data}/>Local workspace</span>}</div></header><main className="home-content"><div className="home-eyebrow"><span className="tiny-cross">+</span> YOUR CODE, CONNECTED</div><h1>A little less searching.<br/><span>A lot more understanding.</span></h1><p className="home-description">Turn a repository into a map you can explore.<br/>Follow dependencies, read the source, and ask better questions.</p>
-    <section className="ingest-card"><div className="ingest-title"><div className="github-icon"><Github size={21}/></div><div><h2>Start with a repository</h2><p>{capabilities.data?.mode !== 'production' ? 'Analyze a public GitHub repository in your local workspace.' : session.data?.authenticated ? 'Analyze public GitHub repositories with full AI coverage and questions.' : 'Preview one public GitHub repository and ask five AI questions. Sign in for full access.'}</p></div><span className="tag">{session.data?.authenticated ? 'FULL ACCESS' : 'FREE PREVIEW'}</span></div><form onSubmit={submit} className="repo-input-form"><div className="repo-input-wrap"><Github size={17}/><input aria-label="Public GitHub repository URL" value={url} onChange={event => setUrl(event.target.value)} placeholder="https://github.com/owner/repository" type="url" required disabled={start.isPending || !!session.data?.freeRepositoryUsed}/></div><button className="button primary" type="submit" disabled={start.isPending || !url.trim() || !!session.data?.freeRepositoryUsed}>{start.isPending && !start.variables ? <Loader2 size={16} className="spin"/> : <Network size={16}/>}<span>{session.data?.authenticated || capabilities.data?.mode !== 'production' ? 'Analyze repository' : 'Preview repository'}</span><ArrowRight size={15}/></button></form>{session.data?.freeRepositoryUsed && (repos.data?.repositories.length ? <p className="ingest-meta">Your guest preview is saved in this browser. Sign in to analyze the full repository and add more.</p> : <div className="ingest-meta"><span>Your guest preview can be restored.</span><button className="text-button" disabled={restore.isPending} onClick={() => restore.mutate()}>{restore.isPending ? "Restoring…" : "Restore preview"}</button>{restore.error && <span>{restore.error.message}</span>}</div>)}<div className="ingest-meta"><span><ShieldCheck size={12}/> Read only analysis</span><span><span className="language-dot ts"/> {capabilities.data?.languages.filter(item => item.status === 'supported').map(item => item.label).join(' · ') || 'Loading languages'}</span></div>{start.error && <div className="inline-error"><CircleAlert size={15}/>{start.error.message}</div>}<div className="demo-row"><span>Want to look around first?</span><button onClick={() => start.mutate(true)} disabled={start.isPending}>{start.isPending && start.variables ? <Loader2 size={13} className="spin"/> : <Play size={12}/>}Explore the example repository<ArrowUpRightIcon/></button></div></section>
-    <div className="section-heading"><div><h2>Your repositories</h2><span className="count-pill">{repos.data?.repositories.length || 0}</span></div><span className="section-caption">A place for every codebase</span></div>
-    {repos.isLoading ? <div className="repo-loading"><Loader2 className="spin" size={18}/> Loading your workspace…</div> : repos.error ? <div className="empty-repos error"><CircleAlert size={22}/><div><h3>Waiting for the backend</h3><p>{repos.error.message}</p><button onClick={() => void repos.refetch()} className="text-button">Reconnect <RefreshCw size={12}/></button></div></div> : repos.data?.repositories.length ? <div className="repository-grid">{repos.data.repositories.map(repo => {const analysis = repos.data.analyses.find(item => item.id === repo.latestAnalysisId) || repos.data.analyses.filter(item => item.repositoryId === repo.id).sort((a,b) => b.createdAt.localeCompare(a.createdAt))[0];return <button className="repository-card" key={repo.id} onClick={() => analysis && navigate(`/analysis/${enc(analysis.id)}`)}><div className="repo-card-top"><span className="repo-card-icon"><GitFork size={17}/></span><span className={`repo-status ${analysis?.status || ''}`}><StatusDot ready={!!analysis?.ragReady}/>{analysisLabel(analysis)}</span><ArrowRight size={16}/></div><div className="repo-owner">{repo.owner}</div><h3>{repo.name}</h3><div className="repo-card-bottom"><span><FileCode2 size={12}/>{analysis?.counts.files || 0} files</span><span>{analysis?.languages.join(', ') || 'Source'}</span><span className="repo-age"><RelativeTime value={analysis?.createdAt || repo.createdAt}/></span></div></button>;})}</div> : <div className="empty-repos"><div className="empty-repos-visual"><Folder size={25}/><Plus size={12}/></div><div><h3>Your next deep dive starts here</h3><p>Repositories you analyze will appear in this workspace.</p></div></div>}
-    <ProductPreview/><section className="how-it-works"><div className="how-header"><span className="eyebrow">UNDER THE HOOD</span><span>One shared map. Every answer connected.</span></div><div className="how-steps"><div><span className="step-icon"><Code2 size={18}/></span><h3>Read the structure</h3><p>Static analysis finds real symbols and dependencies in your source.</p></div><ArrowRight className="step-arrow" size={16}/><div><span className="step-icon"><Network size={18}/></span><h3>Explore the connections</h3><p>Move from modules to files to functions, at your own pace.</p></div><ArrowRight className="step-arrow" size={16}/><div><span className="step-icon"><Sparkles size={18}/></span><h3>Ask with context</h3><p>Get answers tied to evidence, with citations down to the line.</p></div></div></section><footer className="home-footer"><Logo/><span>Built for the moments between reading and understanding.</span></footer>
-  </main></div></>;
+
+function UpdateNotice() {
+  const [available, setAvailable] = useState(false);
+  useEffect(() => {
+    const loadedBundle = document.querySelector<HTMLScriptElement>('script[src*="/assets/index-"]')?.getAttribute('src');
+    if (!loadedBundle) return;
+    const check = async () => {
+      try {
+        const response = await fetch('/', {cache: 'no-store'});
+        if (!response.ok) return;
+        const latestBundle = (await response.text()).match(/\/assets\/index-[A-Za-z0-9_-]+\.js/)?.[0];
+        if (latestBundle && latestBundle !== loadedBundle) setAvailable(true);
+      } catch { /* A temporary network error should not interrupt the workspace. */ }
+    };
+    const onFocus = () => {void check();};
+    const onVisibility = () => {if (document.visibilityState === 'visible') void check();};
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    const timer = window.setInterval(onFocus, 60_000);
+    return () => {window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onVisibility); window.clearInterval(timer);};
+  }, []);
+  return available ? <div className="app-update-notice" role="status"><span>Atlas was updated. Reload to use the latest version.</span><button className="button primary" onClick={() => window.location.reload()}>Reload</button></div> : null;
 }
-function ArrowUpRightIcon(){return <ExternalLink size={12}/>;}
 
-function ProductPreview() {
-  const [step, setStep] = useState(0);
-  return <section className="product-preview" aria-label="Example of a question linked to source"><div><span className="eyebrow">A QUESTION. AN ANSWER. THE SOURCE.</span><h2>Follow the answer into the code.</h2><p>A short walkthrough using the Beacon Store example.</p><div className="preview-steps">{['Ask a question','Check the answer','Open the source'].map((label,index) => <button key={label} aria-pressed={step === index} className={step === index ? 'active' : ''} onClick={() => setStep(index)}><span>{index+1}</span>{label}<ChevronRight size={16}/></button>)}</div></div><div className="preview-example">{step === 0 ? <><span className="preview-label">YOU ASK</span><h3>Where is rate limiting implemented?</h3><p>Ask across the repository or focus on a selected file.</p><button className="text-button" onClick={() => setStep(1)}>See an example answer<ArrowRight size={16}/></button></> : step === 1 ? <><span className="preview-label">ATLAS · EXAMPLE ANSWER</span><p>The server registers the rate limit middleware before its API routes.</p><button className="preview-citation" onClick={() => setStep(2)}><FileCode2 size={16}/>src/server/app.ts:8<ArrowRight size={15}/></button><small>Open the source to inspect the evidence.</small></> : <><span className="preview-label">src/server/app.ts</span><pre><span>6  export const app = express();</span>{'\n'}<span>7  app.use(express.json());</span>{'\n'}<mark>8  app.use(rateLimit);</mark>{'\n'}<span>9  app.use('/api/auth', authRouter);</span></pre><p>Line ranges stay tied to the analyzed commit.</p></>}</div></section>;
+export default function App() {
+  return <><Routes>
+    <Route path="/" element={<Home/>}/>
+    <Route path="/welcome" element={<Home forceLanding/>}/>
+    <Route path="/analysis/:id" element={<Workspace/>}/>
+    <Route path="*" element={<Home/>}/>
+  </Routes><UpdateNotice/></>;
 }
-
-
-export default function App() {return <Routes><Route path="/" element={<Home/>}/><Route path="/analysis/:id" element={<Workspace/>}/><Route path="*" element={<Home/>}/></Routes>;}
