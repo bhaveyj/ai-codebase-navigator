@@ -184,6 +184,92 @@ def github_compare_commits(url: str, selected_sha: str, current_sha: str, settin
         raise DomainError("GITHUB_UNAVAILABLE", "Unable to compare commits on GitHub. Retry when GitHub is reachable.", 503) from error
 
 
+def _pull_summary(item: dict) -> dict:
+    if not isinstance(item, dict) or not isinstance(item.get("number"), int):
+        raise DomainError("INVALID_GITHUB_RESPONSE", "GitHub returned invalid pull request details.", 502)
+    base, head = item.get("base") or {}, item.get("head") or {}
+    base_sha, head_sha = base.get("sha"), head.get("sha")
+    if not all(isinstance(sha, str) and re.fullmatch(r"[a-f0-9]{40}", sha) for sha in (base_sha, head_sha)):
+        raise DomainError("INVALID_GITHUB_RESPONSE", "GitHub returned invalid pull request revisions.", 502)
+    return {"number": item["number"], "title": str(item.get("title") or "Untitled pull request")[:300],
+            "author": str((item.get("user") or {}).get("login") or "Unknown author")[:100],
+            "state": "merged" if item.get("merged_at") else str(item.get("state") or "open"),
+            "draft": bool(item.get("draft")), "updatedAt": str(item.get("updated_at") or ""),
+            "baseRef": str(base.get("ref") or "")[:256], "headRef": str(head.get("ref") or "")[:256],
+            "baseSha": base_sha, "headSha": head_sha,
+            "url": str(item.get("html_url") or "")}
+
+
+def github_pulls(url: str, state: str, settings: Settings, page: int, per_page: int = 20) -> dict:
+    """List public pull requests; no archive, graph, or model work is started."""
+    owner, name, _ = normalize_url(url)
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "Codebase-Navigator"}
+    if settings.github_token:
+        headers["Authorization"] = f"Bearer {settings.github_token}"
+    try:
+        with httpx.Client(timeout=30, follow_redirects=False, headers=headers) as client:
+            response = client.get(f"https://api.github.com/repos/{owner}/{name}/pulls",
+                                  params={"state": state, "sort": "updated", "direction": "desc", "page": page, "per_page": per_page})
+            if response.status_code == 404:
+                raise DomainError("REPOSITORY_NOT_FOUND", "Pull requests were not found for this repository.", 404)
+            if response.status_code in {403, 429}:
+                raise DomainError("GITHUB_RATE_LIMIT", "GitHub rate limited pull requests. Retry later or configure a server-side GitHub token.", 503)
+            response.raise_for_status()
+            data = response.json()
+            if not isinstance(data, list):
+                raise DomainError("INVALID_GITHUB_RESPONSE", "GitHub returned an invalid pull request list.", 502)
+            return {"pulls": [_pull_summary(item) for item in data], "page": page,
+                    "hasMore": 'rel="next"' in response.headers.get("link", "")}
+    except httpx.HTTPError as error:
+        raise DomainError("GITHUB_UNAVAILABLE", "Unable to fetch pull requests from GitHub. Retry when GitHub is reachable.", 503) from error
+
+
+def github_pull(url: str, number: int, settings: Settings) -> dict:
+    owner, name, _ = normalize_url(url)
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "Codebase-Navigator"}
+    if settings.github_token:
+        headers["Authorization"] = f"Bearer {settings.github_token}"
+    try:
+        with httpx.Client(timeout=30, follow_redirects=False, headers=headers) as client:
+            response = client.get(f"https://api.github.com/repos/{owner}/{name}/pulls/{number}")
+            if response.status_code == 404:
+                raise DomainError("PULL_NOT_FOUND", "That pull request was not found in this repository.", 404)
+            if response.status_code in {403, 429}:
+                raise DomainError("GITHUB_RATE_LIMIT", "GitHub rate limited pull request details. Retry later or configure a server-side GitHub token.", 503)
+            response.raise_for_status()
+            data = response.json()
+            result = _pull_summary(data)
+            result.update({"changedFiles": int(data.get("changed_files") or 0),
+                           "additions": int(data.get("additions") or 0), "deletions": int(data.get("deletions") or 0)})
+            return result
+    except httpx.HTTPError as error:
+        raise DomainError("GITHUB_UNAVAILABLE", "Unable to fetch pull request details from GitHub. Retry when GitHub is reachable.", 503) from error
+
+
+def github_pull_files(url: str, number: int, settings: Settings, page: int) -> dict:
+    """Fetch one page of changed files. GitHub caps this endpoint at 3000 files."""
+    owner, name, _ = normalize_url(url)
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "Codebase-Navigator"}
+    if settings.github_token:
+        headers["Authorization"] = f"Bearer {settings.github_token}"
+    try:
+        with httpx.Client(timeout=30, follow_redirects=False, headers=headers) as client:
+            response = client.get(f"https://api.github.com/repos/{owner}/{name}/pulls/{number}/files",
+                                  params={"page": page, "per_page": 100})
+            if response.status_code == 404:
+                raise DomainError("PULL_NOT_FOUND", "Changed files were not found for this pull request.", 404)
+            if response.status_code in {403, 429}:
+                raise DomainError("GITHUB_RATE_LIMIT", "GitHub rate limited pull request files. Retry later or configure a server-side GitHub token.", 503)
+            response.raise_for_status()
+            data = response.json()
+            if not isinstance(data, list):
+                raise DomainError("INVALID_GITHUB_RESPONSE", "GitHub returned invalid pull request files.", 502)
+            return {"files": [_changed_file(item) for item in data], "page": page,
+                    "hasMore": page < 30 and 'rel="next"' in response.headers.get("link", "")}
+    except httpx.HTTPError as error:
+        raise DomainError("GITHUB_UNAVAILABLE", "Unable to fetch pull request files from GitHub. Retry when GitHub is reachable.", 503) from error
+
+
 def safe_archive_path(name: str) -> str | None:
     if "\\" in name or "\x00" in name or name.startswith("/") or re.match(r"^[A-Za-z]:", name):
         raise DomainError("UNSAFE_ARCHIVE", "Archive contains an unsafe path.")

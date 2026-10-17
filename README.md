@@ -210,6 +210,13 @@ types with `python scripts/generate_contracts.py`. Go and Rust remain planned.
   files are labeled by whether they exist in the pinned Atlas map, and impact is
   available when the displayed changes end at that mapped revision. The older
   snapshot-comparison API remains available, but is not the current Compare UI.
+- **Pull requests** in Compare lists open or closed PRs by recent activity, or
+  opens a PR number directly. It loads file patches on demand, supports file
+  filtering and review progress, and labels whether the Atlas map matches the
+  PR base or head. Impact on a matching base is a view of existing dependencies
+  before the PR; impact on a matching head uses the analyzed result. Browsing
+  PRs reads GitHub only and makes no model requests. GitHub limits this file
+  endpoint to 3,000 files per PR.
 - **Paths** walks a recorded dependency path from an entry point or a file you
   choose. Each step can open source or its relationship evidence. Branch choices
   start another path; the tour is not an execution trace.

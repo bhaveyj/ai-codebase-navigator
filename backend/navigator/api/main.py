@@ -23,12 +23,12 @@ from ..contracts import ChatRequest, DomainError, InvestigationRequest, JobRetry
 from ..exploration import architecture_tour, compare_snapshots, impact_analysis, source_diff
 from ..demo import answer_id
 from ..graph import project_graph
-from ..ingestion import demo_files, github_commit_changes, github_commits, github_compare_commits, github_metadata
+from ..ingestion import demo_files, github_commit_changes, github_commits, github_compare_commits, github_metadata, github_pull, github_pull_files, github_pulls
 from ..jobs import create_job, delete_repository, launch, now, recover_jobs
 from ..rag import answer_question, dependency_answer, stream_answer_question
 from ..quota import QuotaGate
 from ..storage import AsyncStore, create_indexes, make_store
-from ..responses import Analysis, ArchitectureTour, Capabilities, ChatResponse, CodeNode, CommitComparison, CommitDetail, CommitList, Comparison, GraphData, ImpactResponse, IndexedPaths, Investigation, InvestigationList, Job, RepositoryList, SearchResponse, SnapshotList, SourceDiff, SourceFile, Submission, TreeResponse
+from ..responses import Analysis, ArchitectureTour, Capabilities, ChatResponse, CodeNode, CommitComparison, CommitDetail, CommitList, Comparison, GraphData, ImpactResponse, IndexedPaths, Investigation, InvestigationList, Job, PullDetail, PullFiles, PullList, RepositoryList, SearchResponse, SnapshotList, SourceDiff, SourceFile, Submission, TreeResponse
 
 logger = logging.getLogger(__name__)
 
@@ -483,6 +483,34 @@ def create_app(config: Settings | None = None):
             raise DomainError("NOT_FOUND", "The sample repository has no GitHub commit history.", 404)
         repository = await one("repositories", analysis["repositoryId"])
         return await asyncio.to_thread(github_compare_commits, repository["url"], selected, analysis["commitSha"], config)
+
+    @app.get("/api/v1/analyses/{analysis_id}/pulls", response_model=PullList)
+    async def pulls(analysis_id: str, request: Request, state: Literal["open", "closed"] = "open", page: int = Query(default=1, ge=1)):
+        analysis = await authorized_analysis(analysis_id, request)
+        if analysis.get("demo"):
+            return {"pulls": [], "page": page, "hasMore": False}
+        repository = await one("repositories", analysis["repositoryId"])
+        return await asyncio.to_thread(github_pulls, repository["url"], state, config, page)
+
+    @app.get("/api/v1/analyses/{analysis_id}/pulls/{number}", response_model=PullDetail)
+    async def pull_detail(analysis_id: str, number: int, request: Request):
+        analysis = await authorized_analysis(analysis_id, request)
+        if number < 1:
+            raise DomainError("INVALID_PULL", "Enter a positive pull request number.")
+        if analysis.get("demo"):
+            raise DomainError("NOT_FOUND", "The sample repository has no GitHub pull requests.", 404)
+        repository = await one("repositories", analysis["repositoryId"])
+        return await asyncio.to_thread(github_pull, repository["url"], number, config)
+
+    @app.get("/api/v1/analyses/{analysis_id}/pulls/{number}/files", response_model=PullFiles, response_model_exclude_none=True)
+    async def pull_files(analysis_id: str, number: int, request: Request, page: int = Query(default=1, ge=1, le=30)):
+        analysis = await authorized_analysis(analysis_id, request)
+        if number < 1:
+            raise DomainError("INVALID_PULL", "Enter a positive pull request number.")
+        if analysis.get("demo"):
+            raise DomainError("NOT_FOUND", "The sample repository has no GitHub pull requests.", 404)
+        repository = await one("repositories", analysis["repositoryId"])
+        return await asyncio.to_thread(github_pull_files, repository["url"], number, config, page)
 
     async def comparison_data(analysis_id, base, request):
         current, nodes, edges = await graph_data(analysis_id, request)

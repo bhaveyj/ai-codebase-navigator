@@ -248,6 +248,13 @@ body { background: var(--bg); }
 .impact-start-list small { margin-top: 4px; color: #adc5ca; font: 11px var(--mono); }
 .impact-back { display: inline-flex; align-items: center; gap: 7px; margin: 0 0 14px; font-size: 12px; }
 .commit-history { margin: 23px 0 17px; padding: 20px; border: 1px solid #41605d; border-radius: 9px; background: #1a3032; }
+.change-view-tabs { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid #4b6666; border-radius: 7px; background: #12252a; }
+.change-view-tabs button { padding: 9px 15px; border-radius: 4px; color: #b1c9c7; font-size: 12px; }
+.change-view-tabs button.active { background: #315748; color: #e3f2e8; }
+.pull-controls { display: flex; align-items: end; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-top: 18px; }
+.pull-controls form { display: flex; align-items: center; gap: 9px; color: #b9d0cf; font-size: 12px; }
+.pull-controls input { width: 115px; min-width: 0; border: 1px solid #4b6666; border-radius: 5px; background: #12252a; color: #d8e8e2; padding: 9px 11px; font: inherit; }
+.pull-controls .button { min-height: 35px; padding: 7px 11px; }
 .commit-history-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .commit-history-heading h3 { display: flex; align-items: center; gap: 9px; margin: 0 0 7px; font-size: 16px; font-weight: 500; color: #e0ece3; }
 .commit-history-heading h3 svg { color: #a8cdb4; }
@@ -317,6 +324,7 @@ body { background: var(--bg); }
 .commit-hint { margin: 14px 0 0; color: #c7baa0; font-size: 12px; }
 .comparison-empty { margin: 16px 0; padding: 19px 21px; border: 1px dashed #435c5a; border-radius: 7px; color: #abc5c5; font-size: 13px; line-height: 1.7; }
 @media (max-width: 700px) {
+  .pull-controls form { flex-wrap: wrap; }
   .impact-start { padding: 20px; }
   .impact-start-list { grid-template-columns: 1fr; }
   .commit-history { padding: 16px; }

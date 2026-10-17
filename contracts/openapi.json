@@ -1145,6 +1145,178 @@
         }
       }
     },
+    "/api/v1/analyses/{analysis_id}/pulls": {
+      "get": {
+        "summary": "Pulls",
+        "operationId": "pulls_api_v1_analyses__analysis_id__pulls_get",
+        "parameters": [
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Analysis Id"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "open",
+                "closed"
+              ],
+              "type": "string",
+              "default": "open",
+              "title": "State"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PullList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/analyses/{analysis_id}/pulls/{number}": {
+      "get": {
+        "summary": "Pull Detail",
+        "operationId": "pull_detail_api_v1_analyses__analysis_id__pulls__number__get",
+        "parameters": [
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Analysis Id"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PullDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/analyses/{analysis_id}/pulls/{number}/files": {
+      "get": {
+        "summary": "Pull Files",
+        "operationId": "pull_files_api_v1_analyses__analysis_id__pulls__number__files_get",
+        "parameters": [
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Analysis Id"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Number"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 30,
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PullFiles"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/analyses/{analysis_id}/compare": {
       "get": {
         "summary": "Compare",
@@ -3324,6 +3496,209 @@
           "integrations"
         ],
         "title": "Overview"
+      },
+      "PullDetail": {
+        "properties": {
+          "number": {
+            "type": "integer",
+            "title": "Number"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "author": {
+            "type": "string",
+            "title": "Author"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed",
+              "merged"
+            ],
+            "title": "State"
+          },
+          "draft": {
+            "type": "boolean",
+            "title": "Draft"
+          },
+          "updatedAt": {
+            "type": "string",
+            "title": "Updatedat"
+          },
+          "baseRef": {
+            "type": "string",
+            "title": "Baseref"
+          },
+          "headRef": {
+            "type": "string",
+            "title": "Headref"
+          },
+          "baseSha": {
+            "type": "string",
+            "title": "Basesha"
+          },
+          "headSha": {
+            "type": "string",
+            "title": "Headsha"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "changedFiles": {
+            "type": "integer",
+            "title": "Changedfiles"
+          },
+          "additions": {
+            "type": "integer",
+            "title": "Additions"
+          },
+          "deletions": {
+            "type": "integer",
+            "title": "Deletions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "number",
+          "title",
+          "author",
+          "state",
+          "draft",
+          "updatedAt",
+          "baseRef",
+          "headRef",
+          "baseSha",
+          "headSha",
+          "url",
+          "changedFiles",
+          "additions",
+          "deletions"
+        ],
+        "title": "PullDetail"
+      },
+      "PullFiles": {
+        "properties": {
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/CommitChangedFile"
+            },
+            "type": "array",
+            "title": "Files"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "hasMore": {
+            "type": "boolean",
+            "title": "Hasmore"
+          }
+        },
+        "type": "object",
+        "required": [
+          "files",
+          "page",
+          "hasMore"
+        ],
+        "title": "PullFiles"
+      },
+      "PullList": {
+        "properties": {
+          "pulls": {
+            "items": {
+              "$ref": "#/components/schemas/PullSummary"
+            },
+            "type": "array",
+            "title": "Pulls"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "hasMore": {
+            "type": "boolean",
+            "title": "Hasmore"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pulls",
+          "page",
+          "hasMore"
+        ],
+        "title": "PullList"
+      },
+      "PullSummary": {
+        "properties": {
+          "number": {
+            "type": "integer",
+            "title": "Number"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "author": {
+            "type": "string",
+            "title": "Author"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed",
+              "merged"
+            ],
+            "title": "State"
+          },
+          "draft": {
+            "type": "boolean",
+            "title": "Draft"
+          },
+          "updatedAt": {
+            "type": "string",
+            "title": "Updatedat"
+          },
+          "baseRef": {
+            "type": "string",
+            "title": "Baseref"
+          },
+          "headRef": {
+            "type": "string",
+            "title": "Headref"
+          },
+          "baseSha": {
+            "type": "string",
+            "title": "Basesha"
+          },
+          "headSha": {
+            "type": "string",
+            "title": "Headsha"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "number",
+          "title",
+          "author",
+          "state",
+          "draft",
+          "updatedAt",
+          "baseRef",
+          "headRef",
+          "baseSha",
+          "headSha",
+          "url"
+        ],
+        "title": "PullSummary"
       },
       "RelationshipChange": {
         "properties": {

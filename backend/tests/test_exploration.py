@@ -9,7 +9,7 @@ from navigator.api import main
 from navigator.config import Settings
 from navigator.exploration import architecture_tour, compare_snapshots, impact_analysis, source_diff
 from navigator.graph import project_graph
-from navigator.ingestion import github_commit_changes, github_commits, github_compare_commits, github_metadata
+from navigator.ingestion import github_commit_changes, github_commits, github_compare_commits, github_metadata, github_pull, github_pull_files, github_pulls
 from navigator.storage import AsyncStore, LocalStore
 
 
@@ -146,6 +146,72 @@ def test_commit_history_can_follow_a_selected_branch_without_indexing(secured, m
     assert calls == [("https://github.com/example/repo", "feature/review", 2)]
     assert client.get('/api/v1/analyses/a/commits', params={"ref": " "}).status_code == 400
     assert client.get('/api/v1/analyses/private/commits').status_code == 404
+
+
+def test_pull_review_is_read_only_and_owner_scoped(secured, monkeypatch):
+    client, store = secured
+    store.put("repositories", {"id": "repo", "url": "https://github.com/example/repo", "defaultBranch": "main"})
+    summary = {"number": 7, "title": "Improve routes", "author": "ada", "state": "open", "draft": False,
+               "updatedAt": "2026-10-17T00:00:00Z", "baseRef": "main", "headRef": "feature",
+               "baseSha": "a" * 40, "headSha": "b" * 40, "url": "https://github.com/example/repo/pull/7"}
+    calls = []
+    def fake_pulls(url, state, config, page):
+        calls.append(("list", url, state, page))
+        return {"pulls": [summary], "page": page, "hasMore": False}
+    def fake_pull(url, number, config):
+        calls.append(("detail", url, number))
+        return {**summary, "changedFiles": 1, "additions": 2, "deletions": 1}
+    def fake_files(url, number, config, page):
+        calls.append(("files", url, number, page))
+        return {"files": [{"filename": "src/service.ts", "status": "modified", "additions": 2,
+                           "deletions": 1, "patch": "@@ -1 +1 @@\n-old\n+new"}], "page": page, "hasMore": False}
+    monkeypatch.setattr(main, "github_pulls", fake_pulls)
+    monkeypatch.setattr(main, "github_pull", fake_pull)
+    monkeypatch.setattr(main, "github_pull_files", fake_files)
+    assert client.get('/api/v1/analyses/a/pulls', params={"state": "closed", "page": 2}).json()["pulls"] == [summary]
+    assert client.get('/api/v1/analyses/a/pulls/7').json()["changedFiles"] == 1
+    assert client.get('/api/v1/analyses/a/pulls/7/files').json()["files"][0]["filename"] == "src/service.ts"
+    assert calls == [("list", "https://github.com/example/repo", "closed", 2),
+                     ("detail", "https://github.com/example/repo", 7),
+                     ("files", "https://github.com/example/repo", 7, 1)]
+    assert client.get('/api/v1/analyses/private/pulls').status_code == 404
+    assert client.get('/api/v1/analyses/private/pulls/7').status_code == 404
+    assert client.get('/api/v1/analyses/private/pulls/7/files').status_code == 404
+    assert client.get('/api/v1/analyses/a/pulls', params={"state": "invalid"}).status_code == 422
+    assert client.get('/api/v1/analyses/a/pulls/7/files', params={"page": 31}).status_code == 422
+
+
+def test_github_pull_files_are_paged_and_redacted(monkeypatch):
+    calls = []
+    class Github:
+        def __enter__(self): return self
+        def __exit__(self, *_): return None
+        def get(self, url, params=None):
+            calls.append((url, params))
+            if url.endswith('/pulls'):
+                data = [{"number": 7, "title": "Improve routes", "user": {"login": "ada"},
+                         "state": "open", "updated_at": "2026-10-17T00:00:00Z",
+                         "base": {"ref": "main", "sha": "a" * 40}, "head": {"ref": "feature", "sha": "b" * 40}}]
+            elif url.endswith('/pulls/7/files'):
+                data = [{"filename": "src/service.ts", "status": "modified", "additions": 1,
+                         "deletions": 0, "patch": "@@ -1 +1 @@\n+secret=\"very-secret-secret\""}]
+            else:
+                data = {"number": 7, "title": "Improve routes", "user": {"login": "ada"},
+                        "state": "open", "updated_at": "2026-10-17T00:00:00Z",
+                        "base": {"ref": "main", "sha": "a" * 40}, "head": {"ref": "feature", "sha": "b" * 40},
+                        "changed_files": 1, "additions": 1, "deletions": 0}
+            return httpx.Response(200, json=data, headers={"Link": '<https://api.github.com/next>; rel="next"'}, request=httpx.Request('GET', url))
+    monkeypatch.setattr('navigator.ingestion.httpx.Client', lambda **_: Github())
+    config = Settings(_env_file=None)
+    assert github_pulls('https://github.com/example/repo', 'open', config, 1)["hasMore"]
+    assert github_pull('https://github.com/example/repo', 7, config)["headSha"] == "b" * 40
+    result = github_pull_files('https://github.com/example/repo', 7, config, 1)
+    assert result["hasMore"] and result["files"][0]["redacted"]
+    assert "very-secret-secret" not in result["files"][0]["patch"]
+    assert github_pull_files('https://github.com/example/repo', 7, config, 2)["page"] == 2
+    assert not github_pull_files('https://github.com/example/repo', 7, config, 30)["hasMore"]
+    assert calls[0][1] == {"state": "open", "sort": "updated", "direction": "desc", "page": 1, "per_page": 20}
+    assert calls[-2][1] == {"page": 2, "per_page": 100}
 
 
 def test_saved_investigations_are_persistent_owner_scoped_and_validate_ranges(secured):

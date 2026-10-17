@@ -1,5 +1,22 @@
 # V1 validation
 
+## Pull request review — 17 October 2026
+
+- Backend regression suite: **172 passed, 3 skipped**. Frontend TypeScript,
+  production build, and local Docker API/web builds passed. The existing Monaco
+  bundle-size warning remains.
+- The local `localhost:8080` app was updated and its pull-request view loaded.
+  `bhaveyj/Chase-201` has no listed PRs; the empty state and direct-number
+  lookup were visible there.
+- A separate graph-only local workspace reviewed public
+  `sindresorhus/p-limit` PR #109. Browser checks covered the closed PR list,
+  direct-number lookup, patch expansion, file filtering, viewed progress,
+  unmatched-map labeling, matching-base coverage, baseline Impact, and return
+  to the same PR. The isolated workspace did not run embeddings or answers.
+- PR browsing uses GitHub REST reads. No AI answer requests were made during
+  this check. Live GitHub file pagination beyond the first page was covered by
+  controlled tests rather than a 100-file PR.
+
 ## Commit explorer — 17 October 2026
 
 - Backend regression suite: **170 passed, 3 skipped**. Frontend TypeScript and

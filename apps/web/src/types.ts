@@ -232,6 +232,45 @@ export interface Overview {
   citations?: Array<Citation>;
   blocks?: Array<AnswerBlock>;
 }
+export interface PullDetail {
+  number: number;
+  title: string;
+  author: string;
+  state: "open" | "closed" | "merged";
+  draft: boolean;
+  updatedAt: string;
+  baseRef: string;
+  headRef: string;
+  baseSha: string;
+  headSha: string;
+  url: string;
+  changedFiles: number;
+  additions: number;
+  deletions: number;
+}
+export interface PullFiles {
+  files: Array<CommitChangedFile>;
+  page: number;
+  hasMore: boolean;
+}
+export interface PullList {
+  pulls: Array<PullSummary>;
+  page: number;
+  hasMore: boolean;
+}
+export interface PullSummary {
+  number: number;
+  title: string;
+  author: string;
+  state: "open" | "closed" | "merged";
+  draft: boolean;
+  updatedAt: string;
+  baseRef: string;
+  headRef: string;
+  baseSha: string;
+  headSha: string;
+  url: string;
+}
 export interface RelationshipChange {
   source: string;
   sourceName: string;

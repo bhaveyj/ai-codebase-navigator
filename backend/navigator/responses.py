@@ -259,6 +259,38 @@ class CommitComparison(PublicModel):
     url: str
 
 
+class PullSummary(PublicModel):
+    number: int
+    title: str
+    author: str
+    state: Literal["open", "closed", "merged"]
+    draft: bool
+    updatedAt: str
+    baseRef: str
+    headRef: str
+    baseSha: str
+    headSha: str
+    url: str
+
+
+class PullList(PublicModel):
+    pulls: list[PullSummary]
+    page: int
+    hasMore: bool
+
+
+class PullDetail(PullSummary):
+    changedFiles: int
+    additions: int
+    deletions: int
+
+
+class PullFiles(PublicModel):
+    files: list[CommitChangedFile]
+    page: int
+    hasMore: bool
+
+
 class FileChange(PublicModel):
     path: str
     status: Literal["added", "removed", "modified"]
