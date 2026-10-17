@@ -932,6 +932,45 @@
         }
       }
     },
+    "/api/v1/analyses/{analysis_id}/indexed-paths": {
+      "get": {
+        "summary": "Indexed Paths",
+        "operationId": "indexed_paths_api_v1_analyses__analysis_id__indexed_paths_get",
+        "parameters": [
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Analysis Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexedPaths"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/analyses/{analysis_id}/commits": {
       "get": {
         "summary": "Commits",
@@ -955,6 +994,23 @@
               "minimum": 1,
               "default": 1,
               "title": "Page"
+            }
+          },
+          {
+            "name": "ref",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ref"
             }
           }
         ],
@@ -2798,6 +2854,27 @@
           "warnings"
         ],
         "title": "ImpactResponse"
+      },
+      "IndexedPaths": {
+        "properties": {
+          "commitSha": {
+            "type": "string",
+            "title": "Commitsha"
+          },
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Paths"
+          }
+        },
+        "type": "object",
+        "required": [
+          "commitSha",
+          "paths"
+        ],
+        "title": "IndexedPaths"
       },
       "Investigation": {
         "properties": {

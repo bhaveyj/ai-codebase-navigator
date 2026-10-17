@@ -127,6 +127,25 @@ def test_exploration_endpoints_enforce_analysis_access(secured):
     assert client.get('/api/v1/analyses/a/impact',params={"node":"foreign"}).status_code == 404
     assert client.get('/api/v1/analyses/a/compare/file',params={"base":"b","path":"src/main.ts"}).status_code == 200
     assert client.get('/api/v1/analyses/a/nodes/fn').json()["name"] == "run"
+    indexed = client.get('/api/v1/analyses/a/indexed-paths')
+    assert indexed.status_code == 200
+    assert indexed.json() == {"commitSha": "a" * 40, "paths": ["src/db.ts", "src/main.ts", "src/service.ts", "tests/service.test.ts"]}
+    assert client.get('/api/v1/analyses/private/indexed-paths').status_code == 404
+
+
+def test_commit_history_can_follow_a_selected_branch_without_indexing(secured, monkeypatch):
+    client, store = secured
+    store.put("repositories", {"id": "repo", "url": "https://github.com/example/repo", "defaultBranch": "main"})
+    calls = []
+    def fake_commits(url, branch, settings, page):
+        calls.append((url, branch, page))
+        return {"commits": [], "page": page, "hasMore": False, "branch": branch}
+    monkeypatch.setattr(main, "github_commits", fake_commits)
+    response = client.get('/api/v1/analyses/a/commits', params={"ref": "feature/review", "page": 2})
+    assert response.status_code == 200 and response.json()["branch"] == "feature/review"
+    assert calls == [("https://github.com/example/repo", "feature/review", 2)]
+    assert client.get('/api/v1/analyses/a/commits', params={"ref": " "}).status_code == 400
+    assert client.get('/api/v1/analyses/private/commits').status_code == 404
 
 
 def test_saved_investigations_are_persistent_owner_scoped_and_validate_ranges(secured):

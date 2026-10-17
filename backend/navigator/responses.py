@@ -223,6 +223,11 @@ class CommitList(PublicModel):
     branch: str
 
 
+class IndexedPaths(PublicModel):
+    commitSha: str
+    paths: list[str]
+
+
 class CommitChangedFile(PublicModel):
     filename: str
     previousFilename: str | None = None

@@ -176,6 +176,10 @@ export interface ImpactResponse {
   depth: number;
   warnings: Array<string>;
 }
+export interface IndexedPaths {
+  commitSha: string;
+  paths: Array<string>;
+}
 export interface Investigation {
   id: string;
   analysisId: string;

@@ -14,7 +14,7 @@ MODELS = (responses.RepositoryList, responses.Submission, responses.GraphData,
           responses.ChatResponse, responses.Capabilities, responses.ImpactResponse,
           responses.Comparison, responses.SourceDiff, responses.ArchitectureTour,
           responses.InvestigationList, responses.SnapshotList, responses.CommitList,
-          responses.CommitDetail, responses.CommitComparison)
+          responses.CommitDetail, responses.CommitComparison, responses.IndexedPaths)
 
 
 def ts_type(schema):

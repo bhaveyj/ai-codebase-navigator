@@ -203,11 +203,13 @@ types with `python scripts/generate_contracts.py`. Go and Rust remain planned.
 - **Impact** follows reverse static dependencies up to five steps and lists
   connected routes and test files. Symbol impact deliberately includes its
   containing file. These are potential effects, not runtime or test coverage claims.
-- **Compare** compares two accessible snapshots of the same repository, including
-  redacted source diffs and added/removed dependency relationships. Analyze another
-  revision using a branch, tag, commit SHA, or `PR #123`. Only public repositories
-  are supported. Renames appear as a removal and addition; identical overloaded
-  symbol names are grouped when comparing relationships.
+- **Compare** browses public GitHub commit history, one page at a time, from the
+  default branch or a branch/SHA you enter. **This commit** shows that commit's
+  changed files; **Since this commit** shows its cumulative difference from the
+  pinned snapshot. GitHub diffs do not start another analysis or use AI. Changed
+  files are labeled by whether they exist in the pinned Atlas map, and impact is
+  available when the displayed changes end at that mapped revision. The older
+  snapshot-comparison API remains available, but is not the current Compare UI.
 - **Paths** walks a recorded dependency path from an entry point or a file you
   choose. Each step can open source or its relationship evidence. Branch choices
   start another path; the tour is not an execution trace.

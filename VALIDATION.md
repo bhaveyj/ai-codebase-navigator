@@ -1,5 +1,19 @@
 # V1 validation
 
+## Commit explorer — 17 October 2026
+
+- Backend regression suite: **170 passed, 3 skipped**. Frontend TypeScript and
+  production build passed. The existing large Monaco bundle warning remains.
+- Browser check used a graph-only local backend and the public
+  `sindresorhus/p-limit` repository. It verified a single commit diff, a range
+  comparison, mapped and GitHub-only file labels, viewed progress, file filtering,
+  branch/SHA history loading, and the Impact → Back to changes return path.
+- The browser check made no AI answer requests. Local graph mode does not create
+  embeddings or call an answer provider; commit browsing reads GitHub directly.
+- Browser testing used the local Vite server at `127.0.0.1:5173` and an isolated
+  local API. It did not validate the production deployment or GitHub rate limits
+  under concurrent traffic.
+
 ## Investigation workspace — 15 October 2026
 
 - Full backend suite: **162 passed, 3 skipped**. After the final graph projection

@@ -246,6 +246,7 @@ body { background: var(--bg); }
 .impact-start-list strong, .impact-start-list small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .impact-start-list strong { color: #e1efe5; font-size: 13px; font-weight: 500; }
 .impact-start-list small { margin-top: 4px; color: #adc5ca; font: 11px var(--mono); }
+.impact-back { display: inline-flex; align-items: center; gap: 7px; margin: 0 0 14px; font-size: 12px; }
 .commit-history { margin: 23px 0 17px; padding: 20px; border: 1px solid #41605d; border-radius: 9px; background: #1a3032; }
 .commit-history-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .commit-history-heading h3 { display: flex; align-items: center; gap: 9px; margin: 0 0 7px; font-size: 16px; font-weight: 500; color: #e0ece3; }
@@ -253,6 +254,11 @@ body { background: var(--bg); }
 .commit-history-heading p { margin: 0; color: #b0c7ca; font-size: 12px; line-height: 1.6; }
 .commit-history-heading code { color: #c6e3cc; }
 .commit-history-heading > span { flex: none; font-size: 11px; color: #a5c5b3; }
+.commit-ref-form { display: grid; gap: 7px; margin-top: 18px; color: #b9d0cf; font-size: 12px; }
+.commit-ref-form > div { display: flex; gap: 9px; }
+.commit-ref-form input, .commit-file-tools input, .commit-file-tools select { min-width: 0; border: 1px solid #4b6666; border-radius: 5px; background: #12252a; color: #d8e8e2; padding: 9px 11px; font: inherit; }
+.commit-ref-form input { flex: 1; }
+.commit-ref-form small { color: #91aeaf; }
 .commit-list { max-height: 410px; overflow: auto; margin-top: 17px; border-top: 1px solid #385553; }
 .commit-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 3px; border-bottom: 1px solid #344e50; }
 .commit-row-copy { min-width: 0; }
@@ -262,6 +268,24 @@ body { background: var(--bg); }
 .commit-row .button { flex: none; min-height: 31px; padding: 6px 10px; font-size: 11px; }
 .commit-row.selected { background: #24423e; }
 .commit-detail { margin-top: 22px; padding-top: 19px; border-top: 1px solid #48615f; }
+.commit-mode { display: inline-flex; gap: 3px; padding: 3px; border: 1px solid #4b6666; border-radius: 6px; background: #12252a; }
+.commit-mode button { padding: 8px 13px; border-radius: 4px; color: #b1c9c7; font-size: 12px; }
+.commit-mode button.active { background: #315748; color: #e3f2e8; }
+.commit-mode button:disabled { opacity: .45; cursor: not-allowed; }
+.commit-mode-help { margin: 12px 0 17px; color: #a9c2c3; font-size: 12px; line-height: 1.6; }
+.commit-coverage { display: grid; gap: 4px; margin: 13px 0 20px; padding: 12px 14px; border: 1px solid #4b6666; border-radius: 6px; background: #162b2e; font-size: 12px; line-height: 1.6; }
+.commit-coverage strong { color: #d6e9dc; font-weight: 500; }
+.commit-coverage span { color: #a9c2c3; }
+.commit-file-tools { display: flex; align-items: end; gap: 10px; flex-wrap: wrap; margin: 17px 0 7px; }
+.commit-file-tools label { display: grid; gap: 6px; min-width: 150px; color: #a9c2c3; font-size: 11px; }
+.commit-file-tools label:first-child { flex: 1; }
+.commit-file-tools > span { margin-left: auto; padding-bottom: 9px; color: #a9c2c3; font-size: 11px; }
+.commit-file-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 0 0 11px; color: #a9c2c3; font-size: 11px; }
+.commit-file-meta span.mapped { color: #b8dfc2; }
+.commit-file-meta label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.commit-file-meta input { accent-color: #94cba7; }
+.commit-file-meta .text-button { margin-left: auto; font-size: 11px; }
+.commit-navigation { display: flex; justify-content: space-between; gap: 10px; margin-top: 20px; }
 .commit-detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 17px; }
 .commit-detail-heading h4 { margin: 8px 0 5px; color: #e0eee4; font-size: 17px; font-weight: 500; }
 .commit-detail-heading p { color: #aac3c3; font-size: 12px; }
@@ -299,6 +323,10 @@ body { background: var(--bg); }
   .commit-row { align-items: flex-start; flex-direction: column; gap: 9px; }
   .commit-row-copy { max-width: 100%; }
   .commit-detail-heading { flex-direction: column; }
+  .commit-ref-form > div { flex-wrap: wrap; }
+  .commit-ref-form input { flex-basis: 100%; }
+  .commit-file-tools label { flex: 1 1 100%; }
+  .commit-file-tools > span { margin-left: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {

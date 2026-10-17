@@ -28,7 +28,7 @@ from ..jobs import create_job, delete_repository, launch, now, recover_jobs
 from ..rag import answer_question, dependency_answer, stream_answer_question
 from ..quota import QuotaGate
 from ..storage import AsyncStore, create_indexes, make_store
-from ..responses import Analysis, ArchitectureTour, Capabilities, ChatResponse, CodeNode, CommitComparison, CommitDetail, CommitList, Comparison, GraphData, ImpactResponse, Investigation, InvestigationList, Job, RepositoryList, SearchResponse, SnapshotList, SourceDiff, SourceFile, Submission, TreeResponse
+from ..responses import Analysis, ArchitectureTour, Capabilities, ChatResponse, CodeNode, CommitComparison, CommitDetail, CommitList, Comparison, GraphData, ImpactResponse, IndexedPaths, Investigation, InvestigationList, Job, RepositoryList, SearchResponse, SnapshotList, SourceDiff, SourceFile, Submission, TreeResponse
 
 logger = logging.getLogger(__name__)
 
@@ -451,13 +451,22 @@ def create_app(config: Settings | None = None):
                 continue
         return {"snapshots": sorted(permitted, key=lambda item: item["createdAt"], reverse=True)}
 
+    @app.get("/api/v1/analyses/{analysis_id}/indexed-paths", response_model=IndexedPaths)
+    async def indexed_paths(analysis_id: str, request: Request):
+        analysis = await authorized_analysis(analysis_id, request)
+        files = await app.state.async_store.find("files", {"analysisId": analysis_id}, projection={"path": 1})
+        return {"commitSha": analysis["commitSha"], "paths": sorted(file["path"] for file in files)}
+
     @app.get("/api/v1/analyses/{analysis_id}/commits", response_model=CommitList)
-    async def commits(analysis_id: str, request: Request, page: int = Query(default=1, ge=1)):
+    async def commits(analysis_id: str, request: Request, page: int = Query(default=1, ge=1), ref: str | None = Query(default=None, max_length=256)):
         analysis = await authorized_analysis(analysis_id, request)
         if analysis.get("demo"):
             return {"commits": [], "page": page, "hasMore": False, "branch": ""}
         repository = await one("repositories", analysis["repositoryId"])
-        return await asyncio.to_thread(github_commits, repository["url"], repository["defaultBranch"], config, page)
+        branch = (ref or repository["defaultBranch"]).strip()
+        if not branch or any(ord(char) < 32 for char in branch):
+            raise DomainError("INVALID_REVISION", "Enter a branch or commit SHA to browse its history.")
+        return await asyncio.to_thread(github_commits, repository["url"], branch, config, page)
 
     @app.get("/api/v1/analyses/{analysis_id}/commits/{sha}", response_model=CommitDetail, response_model_exclude_none=True)
     async def commit_detail(analysis_id: str, sha: str, request: Request, page: int = Query(default=1, ge=1)):
